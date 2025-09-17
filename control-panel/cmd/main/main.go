@@ -26,8 +26,9 @@ func main() {
 	}
 
 	handlers := map[string]cmdHandler{
-		"run-migrations-up": handleRunMigrationsUp,
-		"reset-db-dev":      handleResetDBDev,
+		"run-migrations-up":  handleRunMigrationsUp,
+		"reset-db-dev":       handleResetDBDev,
+		"sync-parts-to-xero": handleSyncPartsToXero,
 	}
 
 	cmd := os.Args[1]
@@ -62,4 +63,21 @@ func handleRunMigrationsUp(args []string) error {
 
 func handleResetDBDev(args []string) error {
 	return commands.ResetDBDev()
+}
+
+func handleSyncPartsToXero(args []string) error {
+	var isProd bool
+	if len(args) >= 1 {
+		if args[0] == "--dev" || args[0] == "-d" {
+			isProd = false
+		} else if args[0] == "--prod" || args[0] == "-p" {
+			isProd = true
+		} else {
+			return fmt.Errorf("Must provide argument --dev or --prod")
+		}
+	} else {
+		return fmt.Errorf("Must provide argument --dev or --prod")
+	}
+
+	return commands.SyncPartsToXero(isProd)
 }
