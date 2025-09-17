@@ -27,6 +27,7 @@ func main() {
 
 	handlers := map[string]cmdHandler{
 		"run-migrations-up": handleRunMigrationsUp,
+		"reset-db-dev":      handleResetDBDev,
 	}
 
 	cmd := os.Args[1]
@@ -57,4 +58,8 @@ func handleRunMigrationsUp(args []string) error {
 	}
 
 	return commands.RunMigrationsUp(isProd)
+}
+
+func handleResetDBDev(args []string) error {
+	return commands.ResetDBDev()
 }
