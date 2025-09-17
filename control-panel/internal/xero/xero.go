@@ -31,42 +31,29 @@ func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, 
 	if len(items) == 0 {
 		return nil
 	}
-	type priceDetails struct {
-		UnitPrice   float64 `json:"UnitPrice"`
-		AccountCode string  `json:"AccountCode,omitempty"`
-		TaxType     string  `json:"TaxType,omitempty"`
+	type simplePrice struct {
+		UnitPrice float64 `json:"UnitPrice"`
 	}
 	type itemPayload struct {
-		Code                      string       `json:"Code"`
-		Name                      string       `json:"Name"`
-		Description               string       `json:"Description,omitempty"`
-		PurchaseDetails           priceDetails `json:"PurchaseDetails,omitempty"`
-		SalesDetails              priceDetails `json:"SalesDetails,omitempty"`
-		IsTrackedAsInventory      bool         `json:"IsTrackedAsInventory,omitempty"`
-		InventoryAssetAccountCode string       `json:"InventoryAssetAccountCode,omitempty"`
-		BarCode                   string       `json:"BarCode,omitempty"`
+		Code        string       `json:"Code"`
+		Name        string       `json:"Name"`
+		Description string       `json:"Description,omitempty"`
+		Purchase    *simplePrice `json:"PurchaseDetails,omitempty"`
+		Sales       *simplePrice `json:"SalesDetails,omitempty"`
 	}
 
-	// transform local Part -> xero item payload
 	out := make([]itemPayload, 0, len(items))
 	for _, p := range items {
 		ip := itemPayload{
 			Code:        p.PartID,
 			Name:        p.Name,
 			Description: p.Description,
-			PurchaseDetails: priceDetails{
-				UnitPrice:   p.PurchasePrice,
-				AccountCode: p.PurchaseAccountCode,
-				TaxType:     p.TaxType,
-			},
-			SalesDetails: priceDetails{
-				UnitPrice:   p.SalesPrice,
-				AccountCode: p.SalesAccountCode,
-				TaxType:     p.TaxType,
-			},
-			IsTrackedAsInventory:      p.IsTrackedAsInventory,
-			InventoryAssetAccountCode: p.InventoryAssetAccountCode,
-			BarCode:                   p.BarCode,
+		}
+		if p.PurchasePrice > 0 {
+			ip.Purchase = &simplePrice{UnitPrice: p.PurchasePrice}
+		}
+		if p.SalesPrice > 0 {
+			ip.Sales = &simplePrice{UnitPrice: p.SalesPrice}
 		}
 		out = append(out, ip)
 	}
