@@ -25,9 +25,11 @@ func main() {
 	// e.g. auth.NewJWT(secret) or auth.NewSupabaseClient(supabaseURL, httpClient)
 	authProvider := auth.NewJWT(os.Getenv("AUTH_SECRET"))
 
+	// Read DB url from env and pass to handler.NewRouter
+	dbURL := getEnv("DATABASE_URL", "")
+
 	// Build your app router from internal/handler. Expect NewRouter to return an http.Handler.
-	// Implement handler.NewRouter(auth.Authenticator, *http.Client) in internal/handler.
-	appRouter := handler.NewRouter(authProvider, httpClient)
+	appRouter := handler.NewRouter(authProvider, httpClient, dbURL)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
