@@ -1,11 +1,12 @@
 package xero
 
-// ...existing code...
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -19,6 +20,14 @@ type Part struct {
 	// ...other fields...
 }
 
+// TokenResponse represents the response from the token exchange.
+type TokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int64  `json:"expires_in"`
+	TokenType    string `json:"token_type"`
+}
+
 // BuildAuthURL returns the Xero OAuth authorize URL.
 func BuildAuthURL(clientID, redirectURI, state string) string {
 	scope := "offline_access accounting.contacts accounting.transactions accounting.settings"
@@ -26,10 +35,33 @@ func BuildAuthURL(clientID, redirectURI, state string) string {
 }
 
 // ExchangeCodeForToken exchanges authorization code for tokens.
-func ExchangeCodeForToken(ctx context.Context, httpClient *http.Client, clientID, clientSecret, code, redirectURI string) (accessToken, refreshToken string, expiresIn time.Duration, err error) {
-	// implement token POST similar to your curl script in utils_dev/exchange-code-for-token.sh
-	// ...existing code...
-	return
+func ExchangeCodeForToken(ctx context.Context, httpClient *http.Client, clientID, clientSecret, code, redirectURI string) (*TokenResponse, error) {
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", code)
+	form.Set("redirect_uri", redirectURI)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://identity.xero.com/connect/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(clientID, clientSecret)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("token exchange failed: status=%d", resp.StatusCode)
+	}
+	var tr TokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
+		return nil, err
+	}
+	return &tr, nil
 }
 
 // RefreshToken exchanges a refresh token for a new access token.

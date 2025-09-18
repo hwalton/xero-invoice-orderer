@@ -5,7 +5,7 @@ export $(grep -v '^#' .env | xargs)
 # non-blocking, prints URL for manual copy if open fails
 STATE=random123
 SCOPE='offline_access%20accounting.settings%20accounting.transactions%20accounting.contacts'
-URL="https://login.xero.com/identity/connect/authorize?response_type=code&client_id=${DEV_XERO_CLIENT_ID}&redirect_uri=${DEV_REDIRECT}&scope=${SCOPE}&state=${STATE}"
+URL="https://login.xero.com/identity/connect/authorize?response_type=code&client_id=${XERO_CLIENT_ID}&redirect_uri=${REDIRECT}&scope=${SCOPE}&state=${STATE}"
 
 echo "Open this URL in your browser (or it will try to open it for you):"
 echo "$URL"

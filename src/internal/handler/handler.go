@@ -111,8 +111,8 @@ func (h *Handler) adminOnly(w http.ResponseWriter, r *http.Request) {
 
 // xeroConnect redirects to Xero auth URL
 func (h *Handler) xeroConnect(w http.ResponseWriter, r *http.Request) {
-	clientID := getEnv("DEV_XERO_CLIENT_ID", "")
-	redirect := getEnv("DEV_REDIRECT", "https://localhost:8080/callback")
+	clientID := getEnv("XERO_CLIENT_ID", "")
+	redirect := getEnv("REDIRECT", "https://localhost:8080/callback")
 	state := "random" // better: per-user CSRF state stored server-side
 	authURL := xero.BuildAuthURL(clientID, url.QueryEscape(redirect), state)
 	http.Redirect(w, r, authURL, http.StatusFound)
