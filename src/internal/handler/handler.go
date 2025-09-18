@@ -10,9 +10,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"html/template"
+	"io"
+
 	"github.com/hwalton/freeride-campervans/internal/store"
 	authpkg "github.com/hwalton/freeride-campervans/pkg/auth"
 	"github.com/hwalton/freeride-campervans/pkg/xero"
+	"github.com/hwalton/freeride-campervans/internal/web"
 )
 
 type contextKey string
@@ -24,14 +28,15 @@ const (
 
 // Handler groups dependencies for route handlers.
 type Handler struct {
-	auth   authpkg.Authenticator
-	client *http.Client
-	dbURL  string
+	auth      authpkg.Authenticator
+	client    *http.Client
+	dbURL     string
+	templates *template.Template // added: parsed templates
 }
 
 // NewRouter now accepts dbURL so handlers can persist connections.
-func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string) http.Handler {
-	h := &Handler{auth: a, client: c, dbURL: dbURL}
+func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates *template.Template) http.Handler {
+	h := &Handler{auth: a, client: c, dbURL: dbURL, templates: templates}
 	r := chi.NewRouter()
 
 	r.Get("/health", h.health)
@@ -281,32 +286,21 @@ func (h *Handler) xeroSync(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "sync invoked", "tenant": tenant})
 }
 
-// login serves a minimal Tailwind + htmx hello-world page.
+// login serves the login page via templates
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	html := `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Login — Freeride</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/htmx.org@1.10.0"></script>
-</head>
-<body class="min-h-screen bg-slate-50 flex items-center justify-center">
-  <main class="w-full max-w-md p-8 bg-white rounded-lg shadow">
-    <h1 class="text-2xl font-semibold mb-4">Welcome</h1>
-    <p class="mb-6 text-sm text-slate-600">Proof of concept Tailwind + htmx login page.</p>
-
-    <div class="space-y-4">
-      <button id="supabase" onclick="window.location.href='#'" class="w-full py-2 px-4 bg-indigo-600 text-white rounded hover:bg-indigo-700">Sign in with Supabase (placeholder)</button>
-
-      <button id="demo" hx-get="/protected" hx-swap="outerHTML" class="w-full py-2 px-4 border rounded">Demo: load protected content</button>
-    </div>
-
-    <div id="result" class="mt-6 text-sm text-slate-700"></div>
-  </main>
-</body>
-</html>`
-	_, _ = w.Write([]byte(html))
+	// render using parsed templates; pass any dynamic data here
+	data := map[string]interface{}{
+		"Title": "Login — Freeride",
+	}
+	if h.templates != nil {
+		_ = h.templates.ExecuteTemplate(w, "login.html", data)
+		return
+	}
+	// fallback: embedded raw file (if templates not provided)
+	if b, err := web.TemplatesFS.ReadFile("templates/login.html"); err == nil {
+		_, _ = io.WriteString(w, string(b))
+		return
+	}
+	http.Error(w, "template error", http.StatusInternalServerError)
 }

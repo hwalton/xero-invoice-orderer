@@ -9,12 +9,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/hwalton/freeride-campervans/internal/handler"
+	"github.com/hwalton/freeride-campervans/internal/web"
 	"github.com/hwalton/freeride-campervans/pkg/auth"
 	"github.com/joho/godotenv"
 )
 
 func main() {
-	if err := godotenv.Load("../../.env"); err != nil {
+	if err := godotenv.Load(".env"); err != nil {
 		log.Printf("no .env file found — relying on environment: %v", err)
 	}
 
@@ -28,8 +29,11 @@ func main() {
 	// Read DB url from env and pass to handler.NewRouter
 	dbURL := getEnv("DATABASE_URL", "")
 
-	// Build your app router from internal/handler. Expect NewRouter to return an http.Handler.
-	appRouter := handler.NewRouter(authProvider, httpClient, dbURL)
+	tpls, err := web.BuildTemplates()
+	if err != nil {
+		log.Fatalf("build templates: %v", err)
+	}
+	appRouter := handler.NewRouter(authProvider, httpClient, dbURL, tpls)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
