@@ -1,0 +1,4 @@
+/* Tailwind entry - used by build/watch commands */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

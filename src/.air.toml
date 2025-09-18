@@ -1,0 +1,14 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # build inside src -> output ./tmp/main (relative to src)
+  cmd = "go build -o ./tmp/main ./cmd/web"
+  include_ext = ["go", "tpl", "tmpl", "html", "css"]
+  exclude_dir = ["assets", "tmp", "node_modules"]
+
+[log]
+  time = true
+
+[run]
+  cmd = "./tmp/main"
