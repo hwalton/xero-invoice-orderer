@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -35,8 +36,12 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string) http.Handl
 
 	r.Get("/health", h.health)
 
+	// public login route
+	r.Get("/login", h.login)
+
 	// protected routes
 	r.Group(func(r chi.Router) {
+		// use RequireAuth which now redirects HTML requests to /login
 		r.Use(h.RequireAuth)
 		r.Get("/protected", h.protected)
 		// example: admin-only
@@ -59,10 +64,16 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string) http.Handl
 }
 
 // RequireAuth validates token, stores claims and userID in context.
+// If the request accepts HTML and is not authenticated, redirect to /login.
 func (h *Handler) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := h.auth.Authenticate(r)
 		if !ok {
+			accept := r.Header.Get("Accept")
+			if strings.Contains(accept, "text/html") || strings.Contains(accept, "application/xhtml+xml") {
+				http.Redirect(w, r, "/login", http.StatusFound)
+				return
+			}
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -268,4 +279,34 @@ func (h *Handler) xeroSync(w http.ResponseWriter, r *http.Request) {
 	// Example minimal call showing success (no-op).
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "sync invoked", "tenant": tenant})
+}
+
+// login serves a minimal Tailwind + htmx hello-world page.
+func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	html := `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login — Freeride</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.10.0"></script>
+</head>
+<body class="min-h-screen bg-slate-50 flex items-center justify-center">
+  <main class="w-full max-w-md p-8 bg-white rounded-lg shadow">
+    <h1 class="text-2xl font-semibold mb-4">Welcome</h1>
+    <p class="mb-6 text-sm text-slate-600">Proof of concept Tailwind + htmx login page.</p>
+
+    <div class="space-y-4">
+      <button id="supabase" onclick="window.location.href='#'" class="w-full py-2 px-4 bg-indigo-600 text-white rounded hover:bg-indigo-700">Sign in with Supabase (placeholder)</button>
+
+      <button id="demo" hx-get="/protected" hx-swap="outerHTML" class="w-full py-2 px-4 border rounded">Demo: load protected content</button>
+    </div>
+
+    <div id="result" class="mt-6 text-sm text-slate-700"></div>
+  </main>
+</body>
+</html>`
+	_, _ = w.Write([]byte(html))
 }
