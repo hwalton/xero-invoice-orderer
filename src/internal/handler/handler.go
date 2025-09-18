@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 
 	"github.com/go-chi/chi/v5"
 
 	authpkg "github.com/hwalton/freeride-campervans/pkg/auth"
+	"github.com/hwalton/freeride-campervans/pkg/xero"
 )
 
 type contextKey string
@@ -37,6 +39,15 @@ func NewRouter(a authpkg.Authenticator, c *http.Client) http.Handler {
 		r.Route("/admin", func(rr chi.Router) {
 			rr.Use(h.RequireRole("admin"))
 			rr.Get("/", h.adminOnly)
+		})
+		// Xero connect + callback
+		r.Get("/xero/connect", h.xeroConnect)
+		r.Get("/xero/callback", h.xeroCallback)
+		// list connections + trigger sync (protected)
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireAuth)
+			r.Get("/xero/connections", h.xeroConnections)
+			r.Post("/xero/{tenant}/sync", h.xeroSync)
 		})
 	})
 
@@ -97,3 +108,26 @@ func (h *Handler) adminOnly(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "admin area"})
 }
+
+// xeroConnect redirects to Xero auth URL
+func (h *Handler) xeroConnect(w http.ResponseWriter, r *http.Request) {
+	clientID := getEnv("DEV_XERO_CLIENT_ID", "")
+	redirect := getEnv("DEV_REDIRECT", "https://localhost:8080/callback")
+	state := "random" // better: per-user CSRF state stored server-side
+	authURL := xero.BuildAuthURL(clientID, url.QueryEscape(redirect), state)
+	http.Redirect(w, r, authURL, http.StatusFound)
+}
+
+// xeroCallback exchanges code for tokens and persists connection
+func (h *Handler) xeroCallback(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		http.Error(w, "code missing", http.StatusBadRequest)
+		return
+	}
+	// call xero.ExchangeCodeForToken, persist tokens to DB (see migration)
+	// respond with success page / JSON
+}
+
+// xeroConnections and xeroSync handlers: list and invoke SyncPartsToXero using stored tokens (refresh if needed)
