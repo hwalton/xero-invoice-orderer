@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"io"
 	"log"
@@ -94,12 +95,26 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 		createdAt = conns[0].CreatedAt
 	}
 
+	// Build sync message from query params (if present)
+	var xeroSyncMsg string
+	if r.URL != nil {
+		if r.URL.Query().Get("synced") == "1" {
+			when := r.URL.Query().Get("when")
+			if when != "" {
+				xeroSyncMsg = fmt.Sprintf("[%s] Parts list synced to xero", when)
+			} else {
+				xeroSyncMsg = "[unknown time] Parts list synced to xero"
+			}
+		}
+	}
+
 	data := map[string]interface{}{
 		"Title":             "Home",
 		"UserID":            userID,
 		"HasXeroConnection": hasXeroConn,
 		"XeroTenantID":      tenantID,
 		"XeroCreatedAt":     createdAt,
+		"XeroSyncMessage":   xeroSyncMsg,
 	}
 
 	if h.templates != nil {
