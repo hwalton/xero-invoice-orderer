@@ -1,17 +1,28 @@
 SHELL := /bin/bash
 
-.PHONY: install-air build-css watch-css dev
+# Project-wide vars
+TAILWIND = npx @tailwindcss/cli
+CONFIG    = ./tailwind.config.js
+INPUT     = ./src/internal/web/static/tailwind/input.css
+OUTPUT    = ./src/internal/web/static/tailwind/output.css
+
+.PHONY: install install-air watch-css build-css dev
+
+install:
+	npm install
 
 install-air:
-	@echo "Installing air..."
-	go install github.com/cosmtrek/air@latest
-	@echo "air installed to $(shell go env GOPATH)/bin"
+	go install github.com/cosmtrek/air/v2/cmd/air@latest
+	@echo "add $(shell go env GOPATH)/bin to your PATH if needed"
 
-# Build production CSS (minified)
-build-css:
-	npx tailwindcss -i ./src/internal/web/static/tailwind/input.css -o ./src/internal/web/static/tailwind/tailwind.css --minify
-
-# Watch CSS for development (blocking)
 watch-css:
-	npx tailwindcss -i ./src/internal/web/static/tailwind/input.css -o ./src/internal/web/static/tailwind/tailwind.css --watch
+	$(TAILWIND) -c $(CONFIG) -i $(INPUT) -o $(OUTPUT) --watch
 
+build-css:
+	$(TAILWIND) -c $(CONFIG) -i $(INPUT) -o $(OUTPUT) --minify
+
+dev:
+	# start tailwind watcher in background, then run air from src (uses src/.air.toml)
+	$(MAKE) watch-css & \
+	sleep 0.2; \
+	cd src && air
