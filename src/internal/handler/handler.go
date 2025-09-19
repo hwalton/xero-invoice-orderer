@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"html/template"
 	"io"
-	"log"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -37,36 +37,26 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates 
 	r.Get("/health", h.health)
 
 	// public login route
-	r.Get("/login", h.login)
+	r.Get("/login", h.loginHandler)
 	// add perform-login POST route
-	r.Post("/perform-login", h.performLogin)
+	r.Post("/perform-login", h.supabaseConnect)
 	// logout - prefer POST in production, GET works for quick testing
 	r.Post("/logout", h.logoutHandler)
 
-	// protected routes
+	// protected routes (require authentication)
 	r.Group(func(r chi.Router) {
-		// use RequireAuth which now redirects HTML requests to /login
 		r.Use(h.RequireAuth)
 
-		// make "/" protected so unauthenticated requests are redirected to /login
-		r.Get("/", h.home)
+		// protected home
+		r.Get("/", h.homeHandler)
 
-		r.Get("/protected", h.protected)
-		// example: admin-only
-		r.Route("/admin", func(rr chi.Router) {
-			rr.Use(h.RequireRole("admin"))
-			rr.Get("/", h.adminOnly)
-		})
 		// Xero connect + callback
 		r.Get("/xero/connect", h.xeroConnect)
 		r.Get("/xero/callback", h.xeroCallback)
+
 		// list connections + trigger sync (protected)
-		r.Group(func(r chi.Router) {
-			// inner RequireAuth is redundant but harmless; you can remove it if desired
-			r.Use(h.RequireAuth)
-			r.Get("/xero/connections", h.xeroConnections)
-			r.Post("/xero/{tenant}/sync", h.xeroSync)
-		})
+		r.Get("/xero/connections", h.xeroConnections)
+		r.Post("/xero/{tenant}/sync", h.xeroSync)
 	})
 
 	return r
@@ -85,19 +75,12 @@ func (h *Handler) RequireAuth(next http.Handler) http.Handler {
 				if len(tok) < m {
 					m = len(tok)
 				}
-				log.Printf("RequireAuth: found access_token cookie (len=%d) prefix=%q", len(tok), tok[:m])
 				r.Header.Set("Authorization", "Bearer "+c.Value)
-			} else {
-				log.Printf("RequireAuth: no access_token cookie")
 			}
-		} else {
-			hdr := r.Header.Get("Authorization")
-			log.Printf("RequireAuth: Authorization header present (len=%d)", len(hdr))
 		}
 
 		claims, ok := h.auth.Authenticate(r)
 		if !ok {
-			log.Printf("RequireAuth: Authenticate returned false")
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
@@ -137,19 +120,8 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-func (h *Handler) protected(w http.ResponseWriter, r *http.Request) {
-	uid, _ := r.Context().Value(ctxUserID).(string)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "protected", "user": uid})
-}
-
-func (h *Handler) adminOnly(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "admin area"})
-}
-
 // login serves the login page via templates
-func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) loginHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// render using parsed templates; pass any dynamic data here
 	data := map[string]interface{}{
@@ -167,8 +139,24 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "template error", http.StatusInternalServerError)
 }
 
+// logoutHandler clears auth cookies and redirects to /login
+func (h *Handler) logoutHandler(w http.ResponseWriter, r *http.Request) {
+	names := []string{"access_token", "refresh_token", "user_id", "current_card_id", "review_ahead_days", "max_new_cards_per_day"}
+	for _, n := range names {
+		http.SetCookie(w, &http.Cookie{
+			Name:     n,
+			Value:    "",
+			Path:     "/",
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+			HttpOnly: true,
+		})
+	}
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
 // dummy home page shown after successful login
-func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 	uid, _ := r.Context().Value(ctxUserID).(string)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = io.WriteString(w, `<!doctype html><html><head><meta charset="utf-8"><title>Home</title></head><body>

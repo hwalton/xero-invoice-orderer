@@ -19,7 +19,6 @@ type Authenticator interface {
 
 // NewJWT returns an Authenticator that validates HMAC-signed JWTs using the provided secret.
 func NewJWT(secret string) Authenticator {
-	fmt.Println("[DEBUG] NewJWT called with secret:", secret)
 	return &jwtAuth{secret: []byte(secret)}
 }
 
@@ -48,7 +47,6 @@ func (a *jwtAuth) Authenticate(r *http.Request) (map[string]interface{}, bool) {
 	if len(prefix) > 16 {
 		prefix = prefix[:16]
 	}
-	log.Printf("jwt auth: parsing token (len=%d, prefix=%q)", len(tokenString), prefix)
 
 	token, err := jwt.ParseWithClaims(tokenString, jwt.MapClaims{}, func(t *jwt.Token) (interface{}, error) {
 		// Ensure expected signing method (Supabase typically uses HS256)
