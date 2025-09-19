@@ -38,9 +38,21 @@ func short(s string) string {
 // xeroConnect redirects to Xero auth URL
 func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("[DEBUGhw] 1 xeroConnectHandler\n")
-	// ensure user is authenticated and we have ownerID
-	ownerID, ok := mid.GetUserIDFromRequest(r, h.auth)
-	if !ok || ownerID == "" {
+
+	// prefer ownerID from user_id cookie to avoid re-parsing JWT
+	var ownerID string
+	if c, err := r.Cookie("user_id"); err == nil && c.Value != "" {
+		ownerID = c.Value
+		log.Printf("[DEBUGhw] xeroConnect: owner from cookie=%s", ownerID)
+	} else if h.auth != nil {
+		// fallback to middleware helper if cookie missing
+		if got, ok := mid.GetUserIDFromRequest(r, h.auth); ok && got != "" {
+			ownerID = got
+			log.Printf("[DEBUGhw] xeroConnect: owner recovered via auth=%s", ownerID)
+		}
+	}
+
+	if ownerID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}

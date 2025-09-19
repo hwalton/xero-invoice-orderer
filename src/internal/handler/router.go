@@ -46,21 +46,15 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates 
 
 	// public login route
 	r.Get("/login", h.loginHandler)
-	// add perform-login POST route
 	r.Post("/perform-login", h.supabaseConnectHandler)
-	// logout - prefer POST in production, GET works for quick testing
 	r.Post("/logout", h.logoutHandler)
 
-	// protected routes (require authentication)
+	// Protect routes with RequireAuth
 	r.Group(func(r chi.Router) {
 		r.Use(mid.RequireAuth(h.auth))
-		r.Get("/", h.homeHandler)
-
-		// Xero connect + callback
+		r.Get("/", h.homeHandler) // <-- protected now
 		r.Get("/xero/connect", h.xeroConnectHandler)
 		r.Get("/xero/callback", h.xeroCallbackHandler)
-
-		// list connections + trigger sync (protected)
 		r.Get("/xero/connections", h.xeroConnectionsHandler)
 		r.Post("/xero/{tenant}/sync", h.xeroSyncHandler)
 	})
