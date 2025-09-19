@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -76,7 +75,6 @@ func ExchangeCodeForToken(ctx context.Context, httpClient *http.Client, clientID
 	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
 		return nil, err
 	}
-	log.Printf("[DEBUGhw] xero.ExchangeCodeForToken: got tokens access_len=%d refresh_len=%d expires=%d", len(tr.AccessToken), len(tr.RefreshToken), tr.ExpiresIn)
 	return &tr, nil
 }
 
@@ -106,7 +104,6 @@ func RefreshToken(ctx context.Context, httpClient *http.Client, clientID, client
 	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
 		return nil, err
 	}
-	log.Printf("[DEBUGhw] xero.RefreshToken: refreshed tokens access_len=%d refresh_len=%d expires=%d", len(tr.AccessToken), len(tr.RefreshToken), tr.ExpiresIn)
 	return &tr, nil
 }
 
@@ -132,7 +129,6 @@ func GetConnections(ctx context.Context, httpClient *http.Client, accessToken st
 	if err := json.NewDecoder(resp.Body).Decode(&conns); err != nil {
 		return nil, err
 	}
-	log.Printf("[DEBUGhw] xero.GetConnections: got %d connections", len(conns))
 	return conns, nil
 }
 
@@ -140,7 +136,6 @@ func GetConnections(ctx context.Context, httpClient *http.Client, accessToken st
 // Keeps payload minimal (Code, Name, Description, SalesDetails.UnitPrice) to avoid account/tax validation.
 func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, tenantID string, items []Part) error {
 	if len(items) == 0 {
-		log.Printf("[DEBUGhw] xero.SyncPartsToXero: no items to sync for tenant=%s", tenantID)
 		return nil
 	}
 	type simplePrice struct {
@@ -194,9 +189,7 @@ func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, 
 	if resp.StatusCode >= 300 {
 		var buf bytes.Buffer
 		_, _ = buf.ReadFrom(resp.Body)
-		log.Printf("[DEBUGhw] xero.SyncPartsToXero: error status=%d body=%s", resp.StatusCode, buf.String())
 		return fmt.Errorf("xero items post failed: status=%d body=%s", resp.StatusCode, buf.String())
 	}
-	log.Printf("[DEBUGhw] xero.SyncPartsToXero: success tenant=%s items=%d", tenantID, len(items))
 	return nil
 }

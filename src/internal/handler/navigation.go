@@ -4,7 +4,6 @@ import (
 	"context"
 	"html/template"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -46,7 +45,6 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(ctxUserID).(string)
 	var ok bool
 
-	log.Printf("[DEBUGhw] homeHandler: enter userID=%s", userID)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	// if no userID in context, try to extract from cookie/header using middleware helper
@@ -56,31 +54,16 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 			r = r.WithContext(context.WithValue(r.Context(), ctxUserID, userID))
 			// set user_id cookie for client (30 days)
 			utils.SetCookie(w, r, "user_id", userID, time.Now().Add(30*24*time.Hour))
-			log.Printf("[DEBUGhw] homeHandler: recovered userID from request=%s", userID)
-		} else {
-			log.Printf("[DEBUGhw] homeHandler: GetUserIDFromRequest returned no userID")
 		}
 	}
 
 	// load connections for the user so template can render them server-side
 	var conns []service.XeroConnection
 	if userID != "" && h.dbURL != "" {
-		log.Printf("[DEBUGhw] homeHandler: loading connections for user=%s dbURL_present=%t", userID, h.dbURL != "")
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		c, err := service.GetConnectionsForOwner(ctx, h.dbURL, userID)
-		if err != nil {
-			log.Printf("[DEBUGhw] homeHandler: failed to load xero connections for user=%s: %v", userID, err)
-			// proceed with empty list so template still renders
-		} else {
+		if c, err := service.GetConnectionsForOwner(ctx, h.dbURL, userID); err == nil {
 			conns = c
-			log.Printf("[DEBUGhw] homeHandler: loaded %d connections for user=%s", len(conns), userID)
-		}
-	} else {
-		if userID == "" {
-			log.Printf("[DEBUGhw] homeHandler: no userID in context")
-		} else {
-			log.Printf("[DEBUGhw] homeHandler: no dbURL configured, skipping load")
 		}
 	}
 
@@ -112,9 +95,7 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.templates != nil {
-		log.Printf("[DEBUGhw] homeHandler: rendering template via parsed templates")
 		if err := h.templates.ExecuteTemplate(w, "home.html", data); err != nil {
-			log.Printf("[DEBUGhw] homeHandler: template execute error: %v", err)
 			http.Error(w, "template error", http.StatusInternalServerError)
 		}
 		return
@@ -124,18 +105,14 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 	if b, err := web.TemplatesFS.ReadFile("templates/home.html"); err == nil {
 		t, err := template.New("home").Parse(string(b))
 		if err != nil {
-			log.Printf("[DEBUGhw] homeHandler: failed to parse embedded template: %v", err)
-		} else {
-			if err := t.Execute(w, data); err != nil {
-				log.Printf("[DEBUGhw] homeHandler: failed to execute embedded template: %v", err)
-				// continue to final fallback
-			} else {
-				log.Printf("[DEBUGhw] homeHandler: rendered embedded template successfully")
-				return
-			}
+			http.Error(w, "template error", http.StatusInternalServerError)
+			return
 		}
-	} else {
-		log.Printf("[DEBUGhw] homeHandler: embedded template missing: %v", err)
+		if err := t.Execute(w, data); err != nil {
+			http.Error(w, "template error", http.StatusInternalServerError)
+			return
+		}
+		return
 	}
 
 	http.Error(w, "template error", http.StatusInternalServerError)
