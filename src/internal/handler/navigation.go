@@ -84,10 +84,22 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// For simplified UI: only one tenant per owner. If any row exists use the first.
+	var hasXeroConn bool
+	var tenantID string
+	var createdAt interface{}
+	if len(conns) > 0 {
+		hasXeroConn = true
+		tenantID = conns[0].TenantID
+		createdAt = conns[0].CreatedAt
+	}
+
 	data := map[string]interface{}{
-		"Title":       "Home",
-		"UserID":      userID,
-		"Connections": conns,
+		"Title":             "Home",
+		"UserID":            userID,
+		"HasXeroConnection": hasXeroConn,
+		"XeroTenantID":      tenantID,
+		"XeroCreatedAt":     createdAt,
 	}
 
 	if h.templates != nil {
