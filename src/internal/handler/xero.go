@@ -144,7 +144,7 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// load connections and find matching tenant
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
 	if err != nil {
@@ -163,8 +163,7 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ensure token not expired — simple check; in production call RefreshToken if near expiry
-	// Here, we assume stored ExpiresAt was set; try best-effort refresh if expired.
+	// ensure token not expired — refresh if needed
 	now := time.Now().UTC()
 	if found.ExpiresAt.Before(now.Add(1 * time.Minute)) {
 		clientID := os.Getenv("XERO_CLIENT_ID")
@@ -189,8 +188,19 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 		found.ExpiresAt = time.Now().Add(time.Duration(secs) * time.Second)
 	}
 
-	// For demo: we don't load parts from DB here. In production, load parts and call xero.SyncPartsToXero.
-	// Example minimal call showing success (no-op).
+	// load parts from DB
+	parts, err := service.LoadParts(ctx, h.dbURL)
+	if err != nil {
+		http.Error(w, "failed to load parts: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// perform sync to Xero
+	if err := xero.SyncPartsToXero(ctx, h.client, found.AccessToken, found.TenantID, parts); err != nil {
+		http.Error(w, "sync to xero failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "sync invoked", "tenant": tenant})
+	json.NewEncoder(w).Encode(map[string]string{"status": "sync completed", "tenant": tenant})
 }
