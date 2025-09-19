@@ -155,12 +155,32 @@ func (h *Handler) logoutHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
-// dummy home page shown after successful login
 func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 	uid, _ := r.Context().Value(ctxUserID).(string)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.WriteString(w, `<!doctype html><html><head><meta charset="utf-8"><title>Home</title></head><body>
-    <h1>Welcome</h1><p>User ID: `+uid+`</p>
-    <form method="POST" action="/logout"><button type="submit">Logout</button></form>
-    </body></html>`)
+
+	data := map[string]interface{}{
+		"Title":  "Home",
+		"UserID": uid,
+	}
+
+	if h.templates != nil {
+		if err := h.templates.ExecuteTemplate(w, "home.html", data); err != nil {
+			http.Error(w, "template error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// fallback: render embedded template file if parsed templates not provided
+	if b, err := web.TemplatesFS.ReadFile("templates/home.html"); err == nil {
+		t, err := template.New("home").Parse(string(b))
+		if err == nil {
+			if err := t.Execute(w, data); err == nil {
+				return
+			}
+		}
+	}
+
+	// final fallback removed — return an error if no template is available
+	http.Error(w, "template error", http.StatusInternalServerError)
 }
