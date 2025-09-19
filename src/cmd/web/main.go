@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -9,12 +10,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/hwalton/freeride-campervans/internal/handler"
+	"github.com/hwalton/freeride-campervans/internal/web"
 	"github.com/hwalton/freeride-campervans/pkg/auth"
 	"github.com/joho/godotenv"
 )
 
 func main() {
-	if err := godotenv.Load("../../.env"); err != nil {
+	if err := godotenv.Load(".env"); err != nil {
 		log.Printf("no .env file found — relying on environment: %v", err)
 	}
 
@@ -23,11 +25,19 @@ func main() {
 
 	// Construct an authenticator (replace with your pkg/auth constructor)
 	// e.g. auth.NewJWT(secret) or auth.NewSupabaseClient(supabaseURL, httpClient)
-	authProvider := auth.NewJWT(os.Getenv("AUTH_SECRET"))
+	authProvider := auth.NewJWT(os.Getenv("SUPABASE_JWT_SECRET"))
 
-	// Build your app router from internal/handler. Expect NewRouter to return an http.Handler.
-	// Implement handler.NewRouter(auth.Authenticator, *http.Client) in internal/handler.
-	appRouter := handler.NewRouter(authProvider, httpClient)
+	// Read DB url from env and pass to handler.NewRouter
+	dbURL := getEnv("SUPABASE_URL", "")
+	if dbURL == "" {
+		log.Fatal("SUPABASE_URL environment variable is required")
+	}
+
+	tpls, err := web.BuildTemplates()
+	if err != nil {
+		log.Fatalf("build templates: %v", err)
+	}
+	appRouter := handler.NewRouter(authProvider, httpClient, dbURL, tpls)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -35,6 +45,14 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+
+	// Serve embedded static files at /static/*
+	// web.StaticFS embeds files under the "static/" directory, so expose its "static" subtree.
+	staticSub, err := fs.Sub(web.StaticFS, "static")
+	if err != nil {
+		log.Fatalf("failed to prepare static files: %v", err)
+	}
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 
 	// Mount application routes
 	r.Mount("/", appRouter)

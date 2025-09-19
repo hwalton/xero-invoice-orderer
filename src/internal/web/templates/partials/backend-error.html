@@ -1,0 +1,8 @@
+{{ if .Error }}
+<div class="mt-4 text-red-600">
+    {{if .Code}}<strong>Error Code:</strong> {{.Code}}<br>{{end}}
+    {{if .Error}}<strong>Error Message:</strong> {{.Error}}{{end}}
+</div>
+{{ else if .Message }}
+<div class="mt-4 text-green-600">{{ .Message }}</div>
+{{ end }}

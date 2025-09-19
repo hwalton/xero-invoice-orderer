@@ -1,0 +1,8 @@
+node_modules/
+
+tmp/
+
+src/tmp/
+
+# compiled Tailwind output (built in CI/Docker)
+src/internal/web/static/tailwind/tailwind.css

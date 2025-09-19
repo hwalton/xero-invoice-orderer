@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>{{ if .Title }}{{ .Title }}{{ else }}Freeride{{ end }}</title>
+  <link href="/static/tailwind/output.css" rel="stylesheet" />
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <header class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+    <div>
+      <a href="/xero/connect" class="inline-flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition">
+        Connect to Xero
+      </a>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <form method="POST" action="/logout">
+        <button type="submit" class="inline-flex items-center gap-2 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition">
+          Logout
+        </button>
+      </form>
+    </div>
+  </header>
+</body>
+</html>
