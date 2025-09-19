@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -15,17 +17,37 @@ import (
 	"github.com/hwalton/freeride-campervans/pkg/xero"
 )
 
-type contextKey string
-
-const (
-	ctxUserID contextKey = "userID"
-)
+// generateState returns a secure random hex string of length 2*n (n bytes).
+func generateState(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
 
 // xeroConnect redirects to Xero auth URL
 func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
+	// ensure user is authenticated and we have ownerID
+	ownerID, ok := mid.GetUserIDFromRequest(r, h.auth)
+	if !ok || ownerID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	clientID := utils.GetEnv("XERO_CLIENT_ID", "")
 	redirect := utils.GetEnv("REDIRECT", "http://localhost:8080/xero/callback")
-	state := "random" // better: per-user CSRF state stored server-side
+
+	// generate secure state and persist mapping -> ownerID
+	state, err := generateState(16)
+	if err != nil {
+		http.Error(w, "failed to generate state", http.StatusInternalServerError)
+		return
+	}
+	h.stateMu.Lock()
+	h.stateStore[state] = ownerID
+	h.stateMu.Unlock()
+
 	authURL := xero.BuildAuthURL(clientID, redirect, state)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -34,15 +56,26 @@ func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	code := r.URL.Query().Get("code")
+	state := r.URL.Query().Get("state")
+
 	if code == "" {
 		http.Error(w, "code missing", http.StatusBadRequest)
 		return
 	}
+	if state == "" {
+		http.Error(w, "state missing", http.StatusBadRequest)
+		return
+	}
 
-	// Explicitly resolve ownerID once (context or cookie fallback)
-	ownerID, ok := mid.GetUserIDFromRequest(r, h.auth)
-	if !ok || ownerID == "" {
-		http.Error(w, "owner id missing", http.StatusInternalServerError)
+	// lookup ownerID by state (one-time use)
+	h.stateMu.Lock()
+	ownerID, found := h.stateStore[state]
+	if found {
+		delete(h.stateStore, state)
+	}
+	h.stateMu.Unlock()
+	if !found || ownerID == "" {
+		http.Error(w, "invalid or expired state", http.StatusBadRequest)
 		return
 	}
 
@@ -62,7 +95,7 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// pass ownerID explicitly into service calls
+	// persist connections for the ownerID
 	for _, c := range conns {
 		expires := tr.ExpiresIn
 		if expires == 0 {

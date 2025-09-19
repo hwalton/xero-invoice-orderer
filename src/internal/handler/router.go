@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"net/http"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	mid "github.com/hwalton/freeride-campervans/internal/middleware"
@@ -16,11 +17,31 @@ type Handler struct {
 	client    *http.Client
 	dbURL     string
 	templates *template.Template // added: parsed templates
+
+	// in-memory OAuth state store: state -> ownerID
+	stateMu    sync.Mutex
+	stateStore map[string]string
 }
+
+// contextKey is a private type to avoid collisions when storing values in context.
+type contextKey string
+
+const (
+	// ctxClaims stores JWT/identity claims (map[string]interface{})
+	ctxClaims contextKey = "claims"
+	// ctxUserID stores the authenticated user's id (string)
+	ctxUserID contextKey = "userID"
+)
 
 // NewRouter now accepts dbURL so handlers can persist connections.
 func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates *template.Template) http.Handler {
-	h := &Handler{auth: a, client: c, dbURL: dbURL, templates: templates}
+	h := &Handler{
+		auth:       a,
+		client:     c,
+		dbURL:      dbURL,
+		templates:  templates,
+		stateStore: make(map[string]string),
+	}
 	r := chi.NewRouter()
 
 	r.Get("/health", h.health)
