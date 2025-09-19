@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -78,14 +79,25 @@ func (h *Handler) RequireAuth(next http.Handler) http.Handler {
 		// If Authorization header missing, try access_token cookie (browser session flow)
 		if r.Header.Get("Authorization") == "" {
 			if c, err := r.Cookie("access_token"); err == nil && c.Value != "" {
+				// mask token length for logs
+				tok := c.Value
+				m := 8
+				if len(tok) < m {
+					m = len(tok)
+				}
+				log.Printf("RequireAuth: found access_token cookie (len=%d) prefix=%q", len(tok), tok[:m])
 				r.Header.Set("Authorization", "Bearer "+c.Value)
+			} else {
+				log.Printf("RequireAuth: no access_token cookie")
 			}
+		} else {
+			hdr := r.Header.Get("Authorization")
+			log.Printf("RequireAuth: Authorization header present (len=%d)", len(hdr))
 		}
 
 		claims, ok := h.auth.Authenticate(r)
 		if !ok {
-			// Always redirect to the login page when unauthorised (browser flow).
-			// This keeps behaviour consistent for HTML pages and form submissions.
+			log.Printf("RequireAuth: Authenticate returned false")
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
