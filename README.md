@@ -1,15 +1,21 @@
 # Download Make. (Makefile)
 
-# Install AIR (on restart):
+# Development:
+
+## 1. Watch CSS changes (from root):
+```
+make watch-css
+```
+
+## 2. Install AIR (on restart):
 ```
 export PATH=$HOME/go/bin:/usr/local/go/bin:$PATH
 export PATH="$HOME/go/bin:$PATH"
 source ~/.bashrc
 ```
 
-# Development:
+## 3. Run AIR:
 ```
-make watch-css
 cd src/
 air
 ```
