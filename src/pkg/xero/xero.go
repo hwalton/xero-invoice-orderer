@@ -12,11 +12,11 @@ import (
 
 // Part mirrors parts used for syncing (minimal).
 type Part struct {
-	PartID        string  `json:"part_id"`
-	Name          string  `json:"name"`
-	Description   string  `json:"description"`
-	SalesPrice    float64 `json:"sales_price"`
-	PurchasePrice float64 `json:"purchase_price"`
+	PartID      string  `json:"part_id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	SalesPrice  float64 `json:"sales_price"`
+	CostPrice   float64 `json:"cost_price"`
 }
 
 // TokenResponse represents token exchange/refresh result.
@@ -132,8 +132,50 @@ func GetConnections(ctx context.Context, httpClient *http.Client, accessToken st
 	return conns, nil
 }
 
+// helper to find an existing item by Code. returns ItemID if found, empty string if not.
+func getItemIDByCode(ctx context.Context, httpClient *http.Client, accessToken, tenantID, code string) (string, error) {
+	// build where clause: Code == "CODE"
+	where := url.QueryEscape(fmt.Sprintf(`Code=="%s"`, code))
+	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Items?where=%s", where)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Xero-tenant-id", tenantID)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("get item by code failed: status=%d", resp.StatusCode)
+	}
+
+	var res struct {
+		Items []struct {
+			ItemID string `json:"ItemID"`
+			Code   string `json:"Code"`
+		} `json:"Items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", err
+	}
+	if len(res.Items) == 0 {
+		return "", nil
+	}
+	// return first match
+	return res.Items[0].ItemID, nil
+}
+
 // SyncPartsToXero posts a minimal Items payload to Xero.
 // Keeps payload minimal (Code, Name, Description, SalesDetails.UnitPrice) to avoid account/tax validation.
+// Uses upsert behavior: if an item with the same Code exists it will be updated, otherwise created.
+// Does not delete or touch items not present in the provided slice.
 func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, tenantID string, items []Part) error {
 	if len(items) == 0 {
 		return nil
@@ -142,6 +184,7 @@ func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, 
 		UnitPrice float64 `json:"UnitPrice"`
 	}
 	type itemPayload struct {
+		ItemID      string       `json:"ItemID,omitempty"`
 		Code        string       `json:"Code"`
 		Name        string       `json:"Name"`
 		Description string       `json:"Description,omitempty"`
@@ -159,8 +202,13 @@ func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, 
 		if p.SalesPrice > 0 {
 			ip.Sales = &simplePrice{UnitPrice: p.SalesPrice}
 		}
-		if p.PurchasePrice > 0 {
-			ip.Purchase = &simplePrice{UnitPrice: p.PurchasePrice}
+		if p.CostPrice > 0 {
+			ip.Purchase = &simplePrice{UnitPrice: p.CostPrice}
+		}
+
+		// attempt to find existing item by Code so we can update instead of recreating
+		if id, err := getItemIDByCode(ctx, httpClient, accessToken, tenantID, p.PartID); err == nil && id != "" {
+			ip.ItemID = id
 		}
 		out = append(out, ip)
 	}

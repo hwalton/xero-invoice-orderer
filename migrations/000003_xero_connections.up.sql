@@ -8,3 +8,9 @@ CREATE TABLE IF NOT EXISTS xero_connections (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+ALTER TABLE xero_connections ENABLE ROW LEVEL SECURITY;
+CREATE POLICY allow_authenticated_read_on_xero_connections
+  ON xero_connections
+  FOR SELECT
+  USING (auth.uid() IS NOT NULL);

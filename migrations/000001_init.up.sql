@@ -1,16 +1,8 @@
 CREATE TABLE IF NOT EXISTS parts (
     part_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    description TEXT,
-    barcode TEXT,
+    cost_price NUMERIC(12,2),
     sales_price NUMERIC(12,2),
-    purchase_price NUMERIC(12,2),
-    sales_account_code TEXT,
-    purchase_account_code TEXT,
-    tax_type TEXT,
-    is_tracked BOOLEAN DEFAULT FALSE,
-    inventory_asset_account_code TEXT,
-    supplier_id TEXT,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );

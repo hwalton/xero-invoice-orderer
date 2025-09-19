@@ -11,21 +11,15 @@ import (
 )
 
 // Part is the local representation of a part you want to push to Xero.
+// Trimmed to match current parts table columns.
 type Part struct {
-	PartID                    string  `json:"part_id"`
-	Name                      string  `json:"name"`
-	Description               string  `json:"description"`
-	SalesPrice                float64 `json:"sales_price"`
-	PurchasePrice             float64 `json:"purchase_price"`
-	SalesAccountCode          string  `json:"sales_account_code,omitempty"`
-	PurchaseAccountCode       string  `json:"purchase_account_code,omitempty"`
-	TaxType                   string  `json:"tax_type,omitempty"`
-	IsTrackedAsInventory      bool    `json:"is_tracked_as_inventory,omitempty"`
-	InventoryAssetAccountCode string  `json:"inventory_asset_account_code,omitempty"`
-	BarCode                   string  `json:"barcode,omitempty"`
+	PartID     string  `json:"part_id"`
+	Name       string  `json:"name"`
+	CostPrice  float64 `json:"cost_price"`
+	SalesPrice float64 `json:"sales_price"`
 }
 
-// ImportItemsToXero sends parts to the Xero Items endpoint. Access token must be valid.
+// SyncPartsToXero sends parts to the Xero Items endpoint. Access token must be valid.
 // tenantID is the Xero tenant (organization) id obtained from /connections.
 func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, tenantID string, items []Part) error {
 	if len(items) == 0 {
@@ -35,22 +29,20 @@ func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, 
 		UnitPrice float64 `json:"UnitPrice"`
 	}
 	type itemPayload struct {
-		Code        string       `json:"Code"`
-		Name        string       `json:"Name"`
-		Description string       `json:"Description,omitempty"`
-		Purchase    *simplePrice `json:"PurchaseDetails,omitempty"`
-		Sales       *simplePrice `json:"SalesDetails,omitempty"`
+		Code     string       `json:"Code"`
+		Name     string       `json:"Name"`
+		Purchase *simplePrice `json:"PurchaseDetails,omitempty"` // Xero expects PurchaseDetails; we map CostPrice -> PurchaseDetails.UnitPrice
+		Sales    *simplePrice `json:"SalesDetails,omitempty"`
 	}
 
 	out := make([]itemPayload, 0, len(items))
 	for _, p := range items {
 		ip := itemPayload{
-			Code:        p.PartID,
-			Name:        p.Name,
-			Description: p.Description,
+			Code: p.PartID,
+			Name: p.Name,
 		}
-		if p.PurchasePrice > 0 {
-			ip.Purchase = &simplePrice{UnitPrice: p.PurchasePrice}
+		if p.CostPrice > 0 {
+			ip.Purchase = &simplePrice{UnitPrice: p.CostPrice}
 		}
 		if p.SalesPrice > 0 {
 			ip.Sales = &simplePrice{UnitPrice: p.SalesPrice}
@@ -76,8 +68,7 @@ func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, 
 	req.Header.Set("Accept", "application/json")
 
 	// debug: confirm what we're sending (do not log token in public)
-	log.Printf("xero: tenant=%s auth_len=%d items=%d", tenantID, len(accessToken), len(items))
-	// log.Printf("xero request body: %s", string(b))
+	log.Printf("xero: tenant=%s items=%d", tenantID, len(items))
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

@@ -127,20 +127,13 @@ func SyncPartsToXero(isProd bool) error {
 		}
 	}()
 
-	// load parts from DB (coalesce nullable columns to safe defaults)
+	// load parts from DB (only current columns: part_id, name, description, cost_price, sales_price)
 	rows, err := conn.Query(ctx, `
 SELECT
   part_id,
   COALESCE(name, '') AS name,
-  COALESCE(description, '') AS description,
-  COALESCE(barcode, '') AS barcode,
-  COALESCE(sales_price, 0)::float8 AS sales_price,
-  COALESCE(purchase_price, 0)::float8 AS purchase_price,
-  COALESCE(sales_account_code, '') AS sales_account_code,
-  COALESCE(purchase_account_code, '') AS purchase_account_code,
-  COALESCE(tax_type, '') AS tax_type,
-  COALESCE(is_tracked, false) AS is_tracked,
-  COALESCE(inventory_asset_account_code, '') AS inventory_asset_account_code
+  COALESCE(cost_price, 0)::float8 AS cost_price,
+  COALESCE(sales_price, 0)::float8 AS sales_price
 FROM parts
 `)
 	if err != nil {
@@ -154,15 +147,8 @@ FROM parts
 		if err := rows.Scan(
 			&p.PartID,
 			&p.Name,
-			&p.Description,
-			&p.BarCode,
+			&p.CostPrice,
 			&p.SalesPrice,
-			&p.PurchasePrice,
-			&p.SalesAccountCode,
-			&p.PurchaseAccountCode,
-			&p.TaxType,
-			&p.IsTrackedAsInventory,
-			&p.InventoryAssetAccountCode,
 		); err != nil {
 			return fmt.Errorf("scan part: %w", err)
 		}
