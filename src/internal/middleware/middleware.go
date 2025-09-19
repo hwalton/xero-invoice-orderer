@@ -18,16 +18,19 @@ const (
 func RequireAuth(auth authpkg.Authenticator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// If no Authorization header, try cookie
 			if r.Header.Get("Authorization") == "" {
 				if c, err := r.Cookie("access_token"); err == nil && c.Value != "" {
 					r.Header.Set("Authorization", "Bearer "+c.Value)
 				}
 			}
+
 			claims, ok := auth.Authenticate(r)
 			if !ok {
 				http.Redirect(w, r, "/login", http.StatusFound)
 				return
 			}
+
 			var uid string
 			if v, ok := claims["sub"].(string); ok && v != "" {
 				uid = v
@@ -64,12 +67,11 @@ func RequireRole(role string) func(http.Handler) http.Handler {
 // 1. ctxUserID (set by RequireAuth when middleware ran)
 // 2. access_token cookie / Authorization header verified via provided authenticator
 func GetUserIDFromRequest(r *http.Request, auth authpkg.Authenticator) (string, bool) {
-	// 1) context value
+	// context value
 	if v, ok := r.Context().Value(ctxUserID).(string); ok && v != "" {
 		return v, true
 	}
 
-	// 2) try to recover from cookie / Authorization header using authenticator
 	// clone request so we don't mutate the original
 	req := r
 	if req.Header.Get("Authorization") == "" {

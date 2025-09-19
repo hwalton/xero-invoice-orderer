@@ -5,11 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/go-chi/chi/v5"
 
 	mid "github.com/hwalton/freeride-campervans/internal/middleware"
 	"github.com/hwalton/freeride-campervans/internal/service"
@@ -28,9 +27,18 @@ func generateState(n int) (string, error) {
 
 // xeroConnect redirects to Xero auth URL
 func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
-	// ensure user is authenticated and we have ownerID
-	ownerID, ok := mid.GetUserIDFromRequest(r, h.auth)
-	if !ok || ownerID == "" {
+	// prefer ownerID from user_id cookie to avoid re-parsing JWT
+	var ownerID string
+	if c, err := r.Cookie("user_id"); err == nil && c.Value != "" {
+		ownerID = c.Value
+	} else if h.auth != nil {
+		// fallback to middleware helper if cookie missing
+		if got, ok := mid.GetUserIDFromRequest(r, h.auth); ok && got != "" {
+			ownerID = got
+		}
+	}
+
+	if ownerID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -118,6 +126,7 @@ func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "owner id missing", http.StatusUnauthorized)
 		return
 	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
@@ -132,39 +141,42 @@ func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request)
 
 // xeroSync triggers a sync for tenant (tenant path param).
 func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
-	tenant := chi.URLParam(r, "tenant")
-	if tenant == "" {
-		http.Error(w, "tenant missing", http.StatusBadRequest)
-		return
-	}
+	// prefer owner id from context/cookie/auth helper (same as before)
 	ownerID, _ := r.Context().Value(ctxUserID).(string)
+	if ownerID == "" {
+		if c, err := r.Cookie("user_id"); err == nil && c.Value != "" {
+			ownerID = c.Value
+			r = r.WithContext(context.WithValue(r.Context(), ctxUserID, ownerID))
+		} else if h.auth != nil {
+			if got, ok := mid.GetUserIDFromRequest(r, h.auth); ok && got != "" {
+				ownerID = got
+				r = r.WithContext(context.WithValue(r.Context(), ctxUserID, ownerID))
+			}
+		}
+	}
+
 	if ownerID == "" {
 		http.Error(w, "owner id missing", http.StatusUnauthorized)
 		return
 	}
 
-	// load connections and find matching tenant
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	// Load connections for the owner from DB and determine tenant from DB.
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
 	if err != nil {
 		http.Error(w, "failed to load connections: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var found *service.XeroConnection
-	for _, c := range conns {
-		if c.TenantID == tenant {
-			found = &c
-			break
-		}
-	}
-	if found == nil {
-		http.Error(w, "tenant not found", http.StatusNotFound)
+	if len(conns) == 0 {
+		http.Error(w, "no xero connection found for owner", http.StatusNotFound)
 		return
 	}
 
-	// ensure token not expired — simple check; in production call RefreshToken if near expiry
-	// Here, we assume stored ExpiresAt was set; try best-effort refresh if expired.
+	// Always use the first DB row (owner_id is unique -> single tenant)
+	found := &conns[0]
+
+	// token refresh, load parts, sync to Xero (unchanged)
 	now := time.Now().UTC()
 	if found.ExpiresAt.Before(now.Add(1 * time.Minute)) {
 		clientID := os.Getenv("XERO_CLIENT_ID")
@@ -174,14 +186,11 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "refresh token failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// persist refreshed tokens
 		if err := service.UpsertConnection(ctx, h.dbURL, ownerID, found.TenantID, tr.AccessToken, tr.RefreshToken, tr.ExpiresIn); err != nil {
 			http.Error(w, "failed to persist refreshed token: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// replace found access token for sync
 		found.AccessToken = tr.AccessToken
-		// recompute ExpiresAt for local copy
 		secs := tr.ExpiresIn
 		if secs == 0 {
 			secs = 3600
@@ -189,8 +198,22 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 		found.ExpiresAt = time.Now().Add(time.Duration(secs) * time.Second)
 	}
 
-	// For demo: we don't load parts from DB here. In production, load parts and call xero.SyncPartsToXero.
-	// Example minimal call showing success (no-op).
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "sync invoked", "tenant": tenant})
+	parts, err := service.LoadParts(ctx, h.dbURL)
+	if err != nil {
+		http.Error(w, "failed to load parts: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := xero.SyncPartsToXero(ctx, h.client, found.AccessToken, found.TenantID, parts); err != nil {
+		http.Error(w, "sync to xero failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// set a short-lived cookie with the sync message (read by homeHandler)
+	when := time.Now().UTC().Format("2006-01-02 15:04:05")
+	msg := fmt.Sprintf("Parts list synced to xero (%s)", when)
+	utils.SetCookie(w, r, "xero_sync_msg", msg, time.Now().Add(5*time.Minute))
+
+	// redirect back to home
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
