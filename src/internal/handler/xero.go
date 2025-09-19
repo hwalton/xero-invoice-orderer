@@ -12,8 +12,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	mid "github.com/hwalton/freeride-campervans/internal/middleware"
 	"github.com/hwalton/freeride-campervans/internal/service"
 	"github.com/hwalton/freeride-campervans/internal/utils"
@@ -168,13 +166,7 @@ func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request)
 
 // xeroSync triggers a sync for tenant (tenant path param).
 func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
-	tenant := chi.URLParam(r, "tenant")
-	if tenant == "" {
-		http.Error(w, "tenant missing", http.StatusBadRequest)
-		return
-	}
-
-	// Prefer user id from request context, fallback to cookie, then to auth helper.
+	// prefer owner id from context/cookie/auth helper (same as before)
 	ownerID, _ := r.Context().Value(ctxUserID).(string)
 	if ownerID == "" {
 		if c, err := r.Cookie("user_id"); err == nil && c.Value != "" {
@@ -195,9 +187,7 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[DEBUGhw] xeroSync: owner=%s tenant=%s", ownerID, tenant)
-
-	// load connections and find matching tenant
+	// Load connections for the owner from DB and determine tenant from DB.
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
@@ -205,18 +195,18 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load connections: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var found *service.XeroConnection
-	for _, c := range conns {
-		if c.TenantID == tenant {
-			found = &c
-			break
-		}
-	}
-	if found == nil {
-		http.Error(w, "tenant not found", http.StatusNotFound)
+	if len(conns) == 0 {
+		http.Error(w, "no xero connection found for owner", http.StatusNotFound)
 		return
 	}
 
+	// Always use the first DB row (owner_id is unique -> single tenant)
+	found := &conns[0]
+	tenant := found.TenantID
+	log.Printf("[DEBUGhw] xeroSync: tenant selected from db=%s", short(tenant))
+	log.Printf("[DEBUGhw] xeroSync: owner=%s tenant=%s", ownerID, tenant)
+
+	// token refresh, load parts, sync to Xero (unchanged)
 	now := time.Now().UTC()
 	if found.ExpiresAt.Before(now.Add(1 * time.Minute)) {
 		clientID := os.Getenv("XERO_CLIENT_ID")
