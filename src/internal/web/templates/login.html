@@ -1,18 +1,40 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
+  <!-- ...existing head... -->
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Login — Freeride (POC)</title>
+  <title>Sign in — Freeride</title>
   <link rel="stylesheet" href="/static/tailwind.css">
   <script src="https://unpkg.com/htmx.org@1.10.0"></script>
 </head>
-<body>
-  <main class="container">
-    <h1>Welcome (POC)</h1>
-    <p>Tailwind placeholder + htmx</p>
-    <a class="btn" href="/auth/supabase">Sign in with Supabase</a>
-    <button hx-get="/protected" hx-swap="outerHTML">Demo: load protected</button>
+<body class="min-h-screen bg-slate-50 flex items-center justify-center">
+  <main class="w-full max-w-md p-8 bg-white rounded-lg shadow">
+    <div class="mb-6 text-center">
+      <h1 class="text-2xl font-semibold">Freeride Control Panel</h1>
+      <p class="text-sm text-slate-500">Sign in to connect Xero and manage data.</p>
+    </div>
+
+    <div class="space-y-4">
+      <a href="/auth/supabase" class="w-full inline-flex items-center justify-center gap-3 py-2 px-4 rounded-md bg-slate-900 text-white hover:bg-slate-800">
+        Sign in with Supabase (OAuth)
+      </a>
+
+      <div class="border-t pt-4">
+        <form hx-post="/auth/login" hx-swap="outerHTML" class="space-y-3">
+          <label class="block text-sm text-slate-600">Email</label>
+          <input name="email" type="email" required class="w-full px-3 py-2 border rounded-md" placeholder="you@example.com"/>
+          <label class="block text-sm text-slate-600">Password</label>
+          <input name="password" type="password" required class="w-full px-3 py-2 border rounded-md" placeholder="••••••••"/>
+          <button type="submit" class="w-full py-2 px-4 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Sign in</button>
+        </form>
+        <p class="text-xs text-slate-400 mt-2">Or use the Supabase OAuth button above.</p>
+      </div>
+    </div>
+
+    <footer class="mt-6 text-center text-sm text-slate-400">
+      <a href="/health" class="underline">Health</a>
+    </footer>
   </main>
 </body>
 </html>
