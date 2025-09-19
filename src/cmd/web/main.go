@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -41,6 +42,14 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+
+	// Serve embedded static files at /static/*
+	// web.StaticFS embeds files under the "static/" directory, so expose its "static" subtree.
+	staticSub, err := fs.Sub(web.StaticFS, "static")
+	if err != nil {
+		log.Fatalf("failed to prepare static files: %v", err)
+	}
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 
 	// Mount application routes
 	r.Mount("/", appRouter)

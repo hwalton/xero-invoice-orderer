@@ -1,19 +1,15 @@
 package handler
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
-	"errors"
 	"html/template"
 	"io"
 	"net/http"
-	"net/url"
-	"os"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/hwalton/freeride-campervans/internal/utils"
 	"github.com/hwalton/freeride-campervans/internal/web"
 	authpkg "github.com/hwalton/freeride-campervans/pkg/auth"
 )
@@ -43,7 +39,7 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates 
 	// public login route
 	r.Get("/login", h.login)
 	// supabase redirect for OAuth
-	r.Get("/auth/supabase", h.authSupabase)
+	// r.Get("/auth/supabase", h.authSupabase)
 
 	// protected routes
 	r.Group(func(r chi.Router) {
@@ -67,6 +63,33 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates 
 	})
 
 	return r
+}
+
+// RequireAuth validates token, stores claims and userID in context.
+// If the request accepts HTML and is not authenticated, redirect to /login.
+func (h *Handler) RequireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := h.auth.Authenticate(r)
+		if !ok {
+			accept := r.Header.Get("Accept")
+			if strings.Contains(accept, "text/html") || strings.Contains(accept, "application/xhtml+xml") {
+				http.Redirect(w, r, "/login", http.StatusFound)
+				return
+			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		// common claim keys: "sub" or "user_id"
+		var uid string
+		if v, ok := claims["sub"].(string); ok && v != "" {
+			uid = v
+		} else if v, ok := claims["user_id"].(string); ok && v != "" {
+			uid = v
+		}
+		ctx := context.WithValue(r.Context(), ctxClaims, claims)
+		ctx = context.WithValue(ctx, ctxUserID, uid)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 // RequireRole returns middleware that requires a role claim (string match).

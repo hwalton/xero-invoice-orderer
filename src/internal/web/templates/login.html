@@ -1,40 +1,86 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- ...existing head... -->
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Sign in — Freeride</title>
-  <link rel="stylesheet" href="/static/tailwind.css">
-  <script src="https://unpkg.com/htmx.org@1.10.0"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Login</title>
+  <!-- Tailwind + DaisyUI -->
+  <link href="/static/tailwind/tailwind.css" rel="stylesheet" />
 </head>
-<body class="min-h-screen bg-slate-50 flex items-center justify-center">
-  <main class="w-full max-w-md p-8 bg-white rounded-lg shadow">
-    <div class="mb-6 text-center">
-      <h1 class="text-2xl font-semibold">Freeride Control Panel</h1>
-      <p class="text-sm text-slate-500">Sign in to connect Xero and manage data.</p>
+<body class="bg-gray-100 min-h-screen flex items-start justify-center pt-8 p-4">
+    <div class="card w-full max-w-sm bg-white shadow-lg">
+        <div class="card-body py-8">
+            <h2 class="card-title text-3xl font-bold justify-center">
+                Freeride Campervans
+            </h2>
+            <h2 class="card-title text-2xl justify-center mb-1">
+                Toolbox App
+            </h2>
+            <p class="text-center mb-2">Please sign in to continue</p>
+
+            <form method="POST" action="/perform-login" class="space-y-4">
+                <div class="form-control">
+                <label class="label">
+                    <span class="label-text text-black">Email</span>
+                </label>
+                <input
+                    type="email"
+                    name="email"
+                    placeholder="Email"
+                    required
+                    class="w-full input-bordered"
+                />
+                </div>
+
+                <div class="form-control">
+                <label class="label">
+                    <span class="label-text text-black">Password</span>
+                </label>
+                <input
+                    type="password"
+                    name="password"
+                    placeholder="Password"
+                    required
+                    class="w-full input-bordered"
+                />
+                </div>
+
+                <button
+                type="submit"
+                class="w-full bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition"
+                >
+                Sign In
+                </button>
+            </form>
+            <div id="fragment-error" class="mt-4 text-red-600 hidden"></div>
+            {{ template "backend-error.html" . }}
+        </div>
     </div>
+<script>
+window.addEventListener('DOMContentLoaded', function() {
+    if (window.location.hash) {
+        const hash = window.location.hash.substring(1);
+        const params = new URLSearchParams(hash);
 
-    <div class="space-y-4">
-      <a href="/auth/supabase" class="w-full inline-flex items-center justify-center gap-3 py-2 px-4 rounded-md bg-slate-900 text-white hover:bg-slate-800">
-        Sign in with Supabase (OAuth)
-      </a>
-
-      <div class="border-t pt-4">
-        <form hx-post="/auth/login" hx-swap="outerHTML" class="space-y-3">
-          <label class="block text-sm text-slate-600">Email</label>
-          <input name="email" type="email" required class="w-full px-3 py-2 border rounded-md" placeholder="you@example.com"/>
-          <label class="block text-sm text-slate-600">Password</label>
-          <input name="password" type="password" required class="w-full px-3 py-2 border rounded-md" placeholder="••••••••"/>
-          <button type="submit" class="w-full py-2 px-4 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Sign in</button>
-        </form>
-        <p class="text-xs text-slate-400 mt-2">Or use the Supabase OAuth button above.</p>
-      </div>
-    </div>
-
-    <footer class="mt-6 text-center text-sm text-slate-400">
-      <a href="/health" class="underline">Health</a>
-    </footer>
-  </main>
+        let html = '';
+        if (params.get('error')) {
+            html += `<div><strong>Error:</strong> ${params.get('error')}</div>`;
+        }
+        if (params.get('error_code')) {
+            html += `<div><strong>Error Code:</strong> ${params.get('error_code')}</div>`;
+        }
+        if (params.get('error_description')) {
+            html += `<div><strong>Description:</strong> ${params.get('error_description')}</div>`;
+        }
+        const errorDiv = document.getElementById('fragment-error');
+        if (html) {
+            errorDiv.innerHTML = html;
+            errorDiv.classList.remove('hidden');
+        } else {
+            errorDiv.classList.add('hidden');
+        }
+    }
+});
+</script>
 </body>
 </html>
