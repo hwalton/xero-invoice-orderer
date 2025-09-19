@@ -11,6 +11,16 @@ import (
 	"os"
 )
 
+type loginResponse struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+	User         struct {
+		ID string `json:"id"`
+	} `json:"user"`
+}
+
 func GenerateSignedURL(accessToken, path string) (string, error) {
 	apiURL := fmt.Sprintf(
 		"%s/storage/v1/object/sign/flashcard-assets/%s",

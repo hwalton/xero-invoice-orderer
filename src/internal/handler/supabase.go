@@ -11,7 +11,7 @@ import (
 
 // supabaseConnect handles POST from the login form, authenticates with Supabase,
 // sets session cookies on success and redirects to "/".
-func (h *Handler) supabaseConnect(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) supabaseConnectHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
@@ -35,7 +35,6 @@ func (h *Handler) supabaseConnect(w http.ResponseWriter, r *http.Request) {
 		log.Printf("supabaseConnect: auth failed: %v", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		data := map[string]interface{}{
-			"Title":   "Login — Freeride",
 			"Error":   "Invalid credentials",
 			"Code":    0,
 			"Message": "",

@@ -15,7 +15,7 @@ import (
 )
 
 // xeroConnect redirects to Xero auth URL
-func (h *Handler) xeroConnect(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
 	clientID := utils.GetEnv("XERO_CLIENT_ID", "")
 	redirect := utils.GetEnv("REDIRECT", "https://localhost:8080/callback")
 	state := "random" // better: per-user CSRF state stored server-side
@@ -24,7 +24,7 @@ func (h *Handler) xeroConnect(w http.ResponseWriter, r *http.Request) {
 }
 
 // xeroCallback exchanges code for tokens and persists connection(s)
-func (h *Handler) xeroCallback(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	code := r.URL.Query().Get("code")
 	if code == "" {
@@ -80,7 +80,7 @@ func (h *Handler) xeroCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 // xeroConnections lists stored Xero connections for the current user.
-func (h *Handler) xeroConnections(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID, _ := r.Context().Value(ctxUserID).(string)
 	if ownerID == "" {
 		http.Error(w, "owner id missing", http.StatusUnauthorized)
@@ -99,7 +99,7 @@ func (h *Handler) xeroConnections(w http.ResponseWriter, r *http.Request) {
 }
 
 // xeroSync triggers a sync for tenant (tenant path param).
-func (h *Handler) xeroSync(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 	tenant := chi.URLParam(r, "tenant")
 	if tenant == "" {
 		http.Error(w, "tenant missing", http.StatusBadRequest)

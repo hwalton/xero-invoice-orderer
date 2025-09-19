@@ -39,7 +39,7 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates 
 	// public login route
 	r.Get("/login", h.loginHandler)
 	// add perform-login POST route
-	r.Post("/perform-login", h.supabaseConnect)
+	r.Post("/perform-login", h.supabaseConnectHandler)
 	// logout - prefer POST in production, GET works for quick testing
 	r.Post("/logout", h.logoutHandler)
 
@@ -51,12 +51,12 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates 
 		r.Get("/", h.homeHandler)
 
 		// Xero connect + callback
-		r.Get("/xero/connect", h.xeroConnect)
-		r.Get("/xero/callback", h.xeroCallback)
+		r.Get("/xero/connect", h.xeroConnectHandler)
+		r.Get("/xero/callback", h.xeroCallbackHandler)
 
 		// list connections + trigger sync (protected)
-		r.Get("/xero/connections", h.xeroConnections)
-		r.Post("/xero/{tenant}/sync", h.xeroSync)
+		r.Get("/xero/connections", h.xeroConnectionsHandler)
+		r.Post("/xero/{tenant}/sync", h.xeroSyncHandler)
 	})
 
 	return r
