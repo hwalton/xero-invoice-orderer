@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"fmt"
 	"html/template"
 	"io"
 	"log"
@@ -95,17 +94,12 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 		createdAt = conns[0].CreatedAt
 	}
 
-	// Build sync message from query params (if present)
+	// Build sync message from short-lived cookie (set after successful sync)
 	var xeroSyncMsg string
-	if r.URL != nil {
-		if r.URL.Query().Get("synced") == "1" {
-			when := r.URL.Query().Get("when")
-			if when != "" {
-				xeroSyncMsg = fmt.Sprintf("[%s] Parts list synced to xero", when)
-			} else {
-				xeroSyncMsg = "[unknown time] Parts list synced to xero"
-			}
-		}
+	if c, err := r.Cookie("xero_sync_msg"); err == nil && c.Value != "" {
+		xeroSyncMsg = c.Value
+		// clear the cookie so the message is shown only once
+		utils.ClearCookie(w, r, "xero_sync_msg")
 	}
 
 	data := map[string]interface{}{

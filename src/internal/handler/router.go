@@ -57,8 +57,6 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates 
 		r.Get("/xero/callback", h.xeroCallbackHandler)
 		r.Get("/xero/connections", h.xeroConnectionsHandler)
 
-		// support POST with tenant in URL or tenant in form body
-		r.Post("/xero/{tenant}/sync", h.xeroSyncHandler)
 		r.Post("/xero/sync", h.xeroSyncHandler)
 	})
 

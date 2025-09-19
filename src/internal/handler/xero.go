@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"time"
 
@@ -242,8 +241,11 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[DEBUGhw] xeroSync: sync completed for tenant=%s", tenant)
 
-	// redirect back to home after successful sync with timestamp message
+	// set a short-lived cookie with the sync message (read by homeHandler)
 	when := time.Now().UTC().Format("2006-01-02 15:04:05")
-	redirectURL := "/?synced=1&when=" + url.QueryEscape(when)
-	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+	msg := fmt.Sprintf("[%s] Parts list synced to xero", when)
+	utils.SetCookie(w, r, "xero_sync_msg", msg, time.Now().Add(5*time.Minute))
+
+	// redirect back to home
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
