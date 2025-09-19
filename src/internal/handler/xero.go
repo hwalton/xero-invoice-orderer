@@ -38,15 +38,17 @@ func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
 	clientID := utils.GetEnv("XERO_CLIENT_ID", "")
 	redirect := utils.GetEnv("REDIRECT", "http://localhost:8080/xero/callback")
 
-	// generate secure state and persist mapping -> ownerID
+	// generate secure state and persist mapping -> ownerID (use DB-backed store with TTL)
 	state, err := generateState(16)
 	if err != nil {
 		http.Error(w, "failed to generate state", http.StatusInternalServerError)
 		return
 	}
-	h.stateMu.Lock()
-	h.stateStore[state] = ownerID
-	h.stateMu.Unlock()
+	ttl := 300 // seconds (5 minutes) — adjust as needed
+	if err := service.CreateOAuthState(r.Context(), h.dbURL, state, ownerID, ttl); err != nil {
+		http.Error(w, "failed to persist state", http.StatusInternalServerError)
+		return
+	}
 
 	authURL := xero.BuildAuthURL(clientID, redirect, state)
 	http.Redirect(w, r, authURL, http.StatusFound)
@@ -67,13 +69,12 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// lookup ownerID by state (one-time use)
-	h.stateMu.Lock()
-	ownerID, found := h.stateStore[state]
-	if found {
-		delete(h.stateStore, state)
+	// lookup ownerID by state (one-time use) via DB
+	ownerID, found, err := service.ConsumeOAuthState(ctx, h.dbURL, state)
+	if err != nil {
+		http.Error(w, "state lookup failed", http.StatusInternalServerError)
+		return
 	}
-	h.stateMu.Unlock()
 	if !found || ownerID == "" {
 		http.Error(w, "invalid or expired state", http.StatusBadRequest)
 		return

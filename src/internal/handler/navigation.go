@@ -4,8 +4,8 @@ import (
 	"html/template"
 	"io"
 	"net/http"
-	"time"
 
+	"github.com/hwalton/freeride-campervans/internal/utils"
 	"github.com/hwalton/freeride-campervans/internal/web"
 )
 
@@ -32,14 +32,7 @@ func (h *Handler) loginHandler(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) logoutHandler(w http.ResponseWriter, r *http.Request) {
 	names := []string{"access_token", "refresh_token", "user_id", "current_card_id", "review_ahead_days", "max_new_cards_per_day"}
 	for _, n := range names {
-		http.SetCookie(w, &http.Cookie{
-			Name:     n,
-			Value:    "",
-			Path:     "/",
-			Expires:  time.Unix(0, 0),
-			MaxAge:   -1,
-			HttpOnly: true,
-		})
+		utils.ClearCookie(w, r, n)
 	}
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }

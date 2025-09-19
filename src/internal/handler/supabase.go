@@ -3,6 +3,7 @@ package handler
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/hwalton/freeride-campervans/internal/utils"
 	"github.com/hwalton/freeride-campervans/internal/web"
@@ -51,10 +52,11 @@ func (h *Handler) supabaseConnectHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// set auth cookies
-	http.SetCookie(w, &http.Cookie{Name: "access_token", Value: access, Path: "/", HttpOnly: true})
-	http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: refresh, Path: "/", HttpOnly: true})
-	http.SetCookie(w, &http.Cookie{Name: "user_id", Value: userID, Path: "/", HttpOnly: true})
+	// set auth cookies with Secure, SameSite, HttpOnly and expiry
+	exp := time.Now().Add(time.Duration(3600) * time.Second) // align with access token expiry
+	utils.SetCookie(w, r, "access_token", access, exp)
+	utils.SetCookie(w, r, "refresh_token", refresh, time.Now().Add(30*24*time.Hour))
+	utils.SetCookie(w, r, "user_id", userID, time.Now().Add(30*24*time.Hour))
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

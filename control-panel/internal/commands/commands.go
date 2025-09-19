@@ -24,9 +24,9 @@ func RunMigrationsUp(isProd bool) error {
 			return fmt.Errorf("PROD_SUPABASE_URL not set")
 		}
 	} else {
-		dbURL, ok = os.LookupEnv("SUPABASE_URL")
+		dbURL, ok = os.LookupEnv("DEV_SUPABASE_URL")
 		if !ok || dbURL == "" {
-			return fmt.Errorf("SUPABASE_URL not set")
+			return fmt.Errorf("DEV_SUPABASE_URL not set")
 		}
 	}
 

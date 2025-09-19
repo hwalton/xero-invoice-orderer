@@ -1,10 +1,10 @@
 package auth
 
 import (
-	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -18,12 +18,19 @@ type Authenticator interface {
 }
 
 // NewJWT returns an Authenticator that validates HMAC-signed JWTs using the provided secret.
+// It will also validate issuer/audience if SUPABASE_JWT_ISSUER / SUPABASE_JWT_AUDIENCE env vars are set.
 func NewJWT(secret string) Authenticator {
-	return &jwtAuth{secret: []byte(secret)}
+	return &jwtAuth{
+		secret:   []byte(secret),
+		issuer:   os.Getenv("SUPABASE_JWT_ISSUER"),
+		audience: os.Getenv("SUPABASE_JWT_AUDIENCE"),
+	}
 }
 
 type jwtAuth struct {
-	secret []byte
+	secret   []byte
+	issuer   string // optional expected iss
+	audience string // optional expected aud
 }
 
 func (a *jwtAuth) Authenticate(r *http.Request) (map[string]interface{}, bool) {
@@ -42,12 +49,6 @@ func (a *jwtAuth) Authenticate(r *http.Request) (map[string]interface{}, bool) {
 		log.Printf("jwt auth: no secret configured (SUPABASE_JWT_SECRET missing?)")
 	}
 
-	// debug: small token info (do NOT log full token in production)
-	prefix := tokenString
-	if len(prefix) > 16 {
-		prefix = prefix[:16]
-	}
-
 	token, err := jwt.ParseWithClaims(tokenString, jwt.MapClaims{}, func(t *jwt.Token) (interface{}, error) {
 		// Ensure expected signing method (Supabase typically uses HS256)
 		if t.Method != jwt.SigningMethodHS256 {
@@ -56,17 +57,8 @@ func (a *jwtAuth) Authenticate(r *http.Request) (map[string]interface{}, bool) {
 		return a.secret, nil
 	})
 	if err != nil {
-		// more debug: try to show header alg (decode first segment)
-		parts := strings.Split(tokenString, ".")
-		if len(parts) > 0 {
-			if h, derr := base64.RawURLEncoding.DecodeString(parts[0]); derr == nil {
-				log.Printf("jwt auth: parse error: %v; token header: %s", err, string(h))
-			} else {
-				log.Printf("jwt auth: parse error: %v; failed to decode header: %v", err, derr)
-			}
-		} else {
-			log.Printf("jwt auth: parse error: %v; token parts invalid", err)
-		}
+		// parse error - do not log token contents
+		log.Printf("jwt auth: parse error: %v", err)
 		return nil, false
 	}
 	if !token.Valid {
@@ -76,6 +68,45 @@ func (a *jwtAuth) Authenticate(r *http.Request) (map[string]interface{}, bool) {
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		return nil, false
+	}
+
+	// Optional: validate issuer
+	if a.issuer != "" {
+		if iss, ok := claims["iss"].(string); !ok || iss != a.issuer {
+			log.Printf("jwt auth: issuer mismatch; expected=%s got=%v", a.issuer, claims["iss"])
+			return nil, false
+		}
+	}
+
+	// Optional: validate audience (aud can be string or array)
+	if a.audience != "" {
+		if audVal, ok := claims["aud"]; ok {
+			switch v := audVal.(type) {
+			case string:
+				if v != a.audience {
+					log.Printf("jwt auth: audience mismatch; expected=%s got=%s", a.audience, v)
+					return nil, false
+				}
+			case []interface{}:
+				found := false
+				for _, it := range v {
+					if s, ok := it.(string); ok && s == a.audience {
+						found = true
+						break
+					}
+				}
+				if !found {
+					log.Printf("jwt auth: audience not found; expected=%s", a.audience)
+					return nil, false
+				}
+			default:
+				log.Printf("jwt auth: unexpected aud claim type: %T", audVal)
+				return nil, false
+			}
+		} else {
+			log.Printf("jwt auth: aud claim missing but expected=%s", a.audience)
+			return nil, false
+		}
 	}
 
 	out := make(map[string]interface{}, len(claims))

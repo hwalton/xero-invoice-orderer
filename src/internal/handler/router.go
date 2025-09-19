@@ -18,9 +18,8 @@ type Handler struct {
 	dbURL     string
 	templates *template.Template // added: parsed templates
 
-	// in-memory OAuth state store: state -> ownerID
-	stateMu    sync.Mutex
-	stateStore map[string]string
+	// removed in-memory stateStore -> using DB-backed state with TTL
+	_ sync.Mutex
 }
 
 // contextKey is a private type to avoid collisions when storing values in context.
@@ -36,11 +35,10 @@ const (
 // NewRouter now accepts dbURL so handlers can persist connections.
 func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates *template.Template) http.Handler {
 	h := &Handler{
-		auth:       a,
-		client:     c,
-		dbURL:      dbURL,
-		templates:  templates,
-		stateStore: make(map[string]string),
+		auth:      a,
+		client:    c,
+		dbURL:     dbURL,
+		templates: templates,
 	}
 	r := chi.NewRouter()
 
