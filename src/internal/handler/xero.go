@@ -19,7 +19,6 @@ type contextKey string
 
 const (
 	ctxUserID contextKey = "userID"
-	ctxClaims contextKey = "claims"
 )
 
 // xeroConnect redirects to Xero auth URL
@@ -40,6 +39,13 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Explicitly resolve ownerID once (context or cookie fallback)
+	ownerID, ok := mid.GetUserIDFromRequest(r, h.auth)
+	if !ok || ownerID == "" {
+		http.Error(w, "owner id missing", http.StatusInternalServerError)
+		return
+	}
+
 	clientID := os.Getenv("XERO_CLIENT_ID")
 	clientSecret := os.Getenv("XERO_CLIENT_SECRET")
 	redirect := utils.GetEnv("REDIRECT", "http://localhost:8080/xero/callback")
@@ -50,23 +56,14 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// discover tenant(s)
 	conns, err := xero.GetConnections(ctx, h.client, tr.AccessToken)
 	if err != nil {
 		http.Error(w, "failed to get connections: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// owner id: try middleware helper (context first, then cookie/header via authenticator)
-	ownerID, ok := mid.GetUserIDFromRequest(r, h.auth)
-	if !ok || ownerID == "" {
-		http.Error(w, "owner id missing", http.StatusInternalServerError)
-		return
-	}
-
-	// persist each tenant
+	// pass ownerID explicitly into service calls
 	for _, c := range conns {
-		// expires seconds fallback
 		expires := tr.ExpiresIn
 		if expires == 0 {
 			expires = 3600
@@ -77,7 +74,6 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// on success redirect back to app UI
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
