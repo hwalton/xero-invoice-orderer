@@ -20,19 +20,14 @@ func LoadParts(ctx context.Context, dbURL string) ([]xero.Part, error) {
 	}
 	defer pool.Close()
 
+	// Return only the columns required by pkg/xero.Part to match Scan below.
 	rows, err := pool.Query(ctx, `
 SELECT
   part_id,
   COALESCE(name, '') AS name,
   COALESCE(description, '') AS description,
-  COALESCE(barcode, '') AS barcode,
   COALESCE(sales_price, 0)::float8 AS sales_price,
-  COALESCE(purchase_price, 0)::float8 AS purchase_price,
-  COALESCE(sales_account_code, '') AS sales_account_code,
-  COALESCE(purchase_account_code, '') AS purchase_account_code,
-  COALESCE(tax_type, '') AS tax_type,
-  COALESCE(is_tracked, false) AS is_tracked,
-  COALESCE(inventory_asset_account_code, '') AS inventory_asset_account_code
+  COALESCE(purchase_price, 0)::float8 AS purchase_price
 FROM parts
 `)
 	if err != nil {

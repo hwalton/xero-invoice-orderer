@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -26,17 +28,28 @@ func generateState(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+func short(s string) string {
+	if len(s) <= 8 {
+		return s
+	}
+	return s[:8] + "..."
+}
+
 // xeroConnect redirects to Xero auth URL
 func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("[DEBUGhw] 1 xeroConnectHandler\n")
 	// ensure user is authenticated and we have ownerID
 	ownerID, ok := mid.GetUserIDFromRequest(r, h.auth)
 	if !ok || ownerID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	log.Printf("[DEBUGhw] 2 xeroConnect: owner=%s", ownerID)
 
 	clientID := utils.GetEnv("XERO_CLIENT_ID", "")
 	redirect := utils.GetEnv("REDIRECT", "http://localhost:8080/xero/callback")
+
+	log.Printf("[DEBUGhw] 3 xeroConnect: owner=%s client_id=%s redirect=%s", ownerID, short(clientID), redirect)
 
 	// generate secure state and persist mapping -> ownerID (use DB-backed store with TTL)
 	state, err := generateState(16)
@@ -49,6 +62,8 @@ func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to persist state", http.StatusInternalServerError)
 		return
 	}
+
+	log.Printf("[DEBUGhw] 4 xeroConnect: owner=%s state=%s ttl=%d", ownerID, short(state), ttl)
 
 	authURL := xero.BuildAuthURL(clientID, redirect, state)
 	http.Redirect(w, r, authURL, http.StatusFound)
@@ -80,6 +95,8 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[DEBUGhw] xeroCallback: state=%s owner=%s code_len=%d", short(state), ownerID, len(code))
+
 	clientID := os.Getenv("XERO_CLIENT_ID")
 	clientSecret := os.Getenv("XERO_CLIENT_SECRET")
 	redirect := utils.GetEnv("REDIRECT", "http://localhost:8080/xero/callback")
@@ -89,6 +106,8 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "token exchange failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	log.Printf("[DEBUGhw] xeroCallback: token exchange succeeded access_len=%d refresh_len=%d", len(tr.AccessToken), len(tr.RefreshToken))
 
 	conns, err := xero.GetConnections(ctx, h.client, tr.AccessToken)
 	if err != nil {
@@ -108,6 +127,8 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	log.Printf("[DEBUGhw] xeroCallback: persisted %d connections for owner=%s", len(conns), ownerID)
+
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -118,6 +139,8 @@ func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "owner id missing", http.StatusUnauthorized)
 		return
 	}
+	log.Printf("[DEBUGhw] xeroConnections: owner=%s", ownerID)
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
@@ -142,6 +165,8 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "owner id missing", http.StatusUnauthorized)
 		return
 	}
+
+	log.Printf("[DEBUGhw] xeroSync: owner=%s tenant=%s", ownerID, tenant)
 
 	// load connections and find matching tenant
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
@@ -194,12 +219,15 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load parts: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	log.Printf("[DEBUGhw] xeroSync: loaded %d parts to sync for tenant=%s", len(parts), tenant)
 
 	// perform sync to Xero
 	if err := xero.SyncPartsToXero(ctx, h.client, found.AccessToken, found.TenantID, parts); err != nil {
 		http.Error(w, "sync to xero failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	log.Printf("[DEBUGhw] xeroSync: sync completed for tenant=%s", tenant)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "sync completed", "tenant": tenant})

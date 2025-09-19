@@ -53,9 +53,9 @@ func ResetDBDev() error {
 	var dbURL string
 	var ok bool
 
-	dbURL, ok = os.LookupEnv("SUPABASE_URL")
+	dbURL, ok = os.LookupEnv("DEV_SUPABASE_URL")
 	if !ok || dbURL == "" {
-		return fmt.Errorf("SUPABASE_URL not set")
+		return fmt.Errorf("DEV_SUPABASE_URL not set")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -100,17 +100,17 @@ func SyncPartsToXero(isProd bool) error {
 			return fmt.Errorf("PROD_XERO_TENANT_ID not set")
 		}
 	} else {
-		dbURL, ok = os.LookupEnv("SUPABASE_URL")
+		dbURL, ok = os.LookupEnv("DEV_SUPABASE_URL")
 		if !ok || dbURL == "" {
-			return fmt.Errorf("SUPABASE_URL not set")
+			return fmt.Errorf("DEV_SUPABASE_URL not set")
 		}
-		accessToken, ok = os.LookupEnv("XERO_ACCESS_TOKEN")
+		accessToken, ok = os.LookupEnv("DEV_XERO_ACCESS_TOKEN")
 		if !ok || accessToken == "" {
-			return fmt.Errorf("XERO_ACCESS_TOKEN not set")
+			return fmt.Errorf("DEV_XERO_ACCESS_TOKEN not set")
 		}
-		tenantID, ok = os.LookupEnv("XERO_TENANT_ID")
+		tenantID, ok = os.LookupEnv("DEV_XERO_TENANT_ID")
 		if !ok || tenantID == "" {
-			return fmt.Errorf("XERO_TENANT_ID not set")
+			return fmt.Errorf("DEV_XERO_TENANT_ID not set")
 		}
 	}
 

@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"context"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
+	"time"
 
+	"github.com/hwalton/freeride-campervans/internal/service"
 	"github.com/hwalton/freeride-campervans/internal/utils"
 	"github.com/hwalton/freeride-campervans/internal/web"
 )
@@ -41,9 +45,24 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 	uid, _ := r.Context().Value(ctxUserID).(string)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
+	// load connections for the user so template can render them server-side
+	var conns []service.XeroConnection
+	if uid != "" && h.dbURL != "" {
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		c, err := service.GetConnectionsForOwner(ctx, h.dbURL, uid)
+		if err != nil {
+			log.Printf("homeHandler: failed to load xero connections for user %s: %v", uid, err)
+			// proceed with empty list so template still renders
+		} else {
+			conns = c
+		}
+	}
+
 	data := map[string]interface{}{
-		"Title":  "Home",
-		"UserID": uid,
+		"Title":       "Home",
+		"UserID":      uid,
+		"Connections": conns,
 	}
 
 	if h.templates != nil {
