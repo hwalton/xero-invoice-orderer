@@ -16,4 +16,4 @@ python3 -m webbrowser "$URL" >/dev/null 2>&1 & disown || true
 gio open "$URL" >/dev/null 2>&1 & disown || true
 
 echo "If nothing opened, copy the URL above into your browser."
-echo "Run the callback server (see capture_xero_code.py) to capture the code on http://localhost:8080/callback"
+echo "Run the callback server (see capture_xero_code.py) to capture the code on http://localhost:8080/xero/callback"

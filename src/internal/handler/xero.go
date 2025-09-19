@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	mid "github.com/hwalton/freeride-campervans/internal/middleware"
 	"github.com/hwalton/freeride-campervans/internal/service"
 	"github.com/hwalton/freeride-campervans/internal/utils"
 	"github.com/hwalton/freeride-campervans/pkg/xero"
@@ -24,7 +25,7 @@ const (
 // xeroConnect redirects to Xero auth URL
 func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
 	clientID := utils.GetEnv("XERO_CLIENT_ID", "")
-	redirect := utils.GetEnv("REDIRECT", "http://localhost:8080/callback")
+	redirect := utils.GetEnv("REDIRECT", "http://localhost:8080/xero/callback")
 	state := "random" // better: per-user CSRF state stored server-side
 	authURL := xero.BuildAuthURL(clientID, redirect, state)
 	http.Redirect(w, r, authURL, http.StatusFound)
@@ -41,7 +42,7 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 	clientID := os.Getenv("XERO_CLIENT_ID")
 	clientSecret := os.Getenv("XERO_CLIENT_SECRET")
-	redirect := utils.GetEnv("REDIRECT", "https://localhost:8080/callback")
+	redirect := utils.GetEnv("REDIRECT", "http://localhost:8080/xero/callback")
 
 	tr, err := xero.ExchangeCodeForToken(ctx, h.client, clientID, clientSecret, code, redirect)
 	if err != nil {
@@ -56,10 +57,10 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// owner id from authenticated user
-	ownerID, _ := r.Context().Value(ctxUserID).(string)
-	if ownerID == "" {
-		http.Error(w, "owner id missing in context", http.StatusInternalServerError)
+	// owner id: try middleware helper (context first, then cookie/header via authenticator)
+	ownerID, ok := mid.GetUserIDFromRequest(r, h.auth)
+	if !ok || ownerID == "" {
+		http.Error(w, "owner id missing", http.StatusInternalServerError)
 		return
 	}
 
@@ -76,14 +77,8 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// redirect back to app UI (or show JSON in dev)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":     "connected",
-		"tenants":    conns,
-		"expires_in": tr.ExpiresIn,
-		"refresh":    "tokens persisted",
-	})
+	// on success redirect back to app UI
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // xeroConnections lists stored Xero connections for the current user.

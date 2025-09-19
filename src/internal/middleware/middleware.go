@@ -58,3 +58,39 @@ func RequireRole(role string) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// GetUserIDFromRequest extracts the app user id from the request.
+// Order:
+// 1. ctxUserID (set by RequireAuth when middleware ran)
+// 2. access_token cookie / Authorization header verified via provided authenticator
+func GetUserIDFromRequest(r *http.Request, auth authpkg.Authenticator) (string, bool) {
+	// 1) context value
+	if v, ok := r.Context().Value(ctxUserID).(string); ok && v != "" {
+		return v, true
+	}
+
+	// 2) try to recover from cookie / Authorization header using authenticator
+	// clone request so we don't mutate the original
+	req := r
+	if req.Header.Get("Authorization") == "" {
+		if c, err := req.Cookie("access_token"); err == nil && c.Value != "" {
+			req = req.Clone(req.Context())
+			req.Header.Set("Authorization", "Bearer "+c.Value)
+		}
+	}
+
+	if auth == nil {
+		return "", false
+	}
+	claims, ok := auth.Authenticate(req)
+	if !ok || claims == nil {
+		return "", false
+	}
+	if v, ok := claims["sub"].(string); ok && v != "" {
+		return v, true
+	}
+	if v, ok := claims["user_id"].(string); ok && v != "" {
+		return v, true
+	}
+	return "", false
+}

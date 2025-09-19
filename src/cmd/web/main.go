@@ -28,7 +28,10 @@ func main() {
 	authProvider := auth.NewJWT(os.Getenv("SUPABASE_JWT_SECRET"))
 
 	// Read DB url from env and pass to handler.NewRouter
-	dbURL := getEnv("DATABASE_URL", "")
+	dbURL := getEnv("SUPABASE_URL", "")
+	if dbURL == "" {
+		log.Fatal("SUPABASE_URL environment variable is required")
+	}
 
 	tpls, err := web.BuildTemplates()
 	if err != nil {
