@@ -211,7 +211,7 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 
 	// set a short-lived cookie with the sync message (read by homeHandler)
 	when := time.Now().UTC().Format("2006-01-02 15:04:05")
-	msg := fmt.Sprintf("[%s] Parts list synced to xero", when)
+	msg := fmt.Sprintf("Parts list synced to xero (%s)", when)
 	utils.SetCookie(w, r, "xero_sync_msg", msg, time.Now().Add(5*time.Minute))
 
 	// redirect back to home
