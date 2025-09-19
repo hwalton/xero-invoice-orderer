@@ -9,9 +9,16 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/hwalton/freeride-campervans/internal/store"
+	"github.com/hwalton/freeride-campervans/internal/service"
 	"github.com/hwalton/freeride-campervans/internal/utils"
 	"github.com/hwalton/freeride-campervans/pkg/xero"
+)
+
+type contextKey string
+
+const (
+	ctxUserID contextKey = "userID"
+	ctxClaims contextKey = "claims"
 )
 
 // xeroConnect redirects to Xero auth URL
@@ -63,7 +70,7 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		if expires == 0 {
 			expires = 3600
 		}
-		if err := store.UpsertConnection(ctx, h.dbURL, ownerID, c.TenantID, tr.AccessToken, tr.RefreshToken, expires); err != nil {
+		if err := service.UpsertConnection(ctx, h.dbURL, ownerID, c.TenantID, tr.AccessToken, tr.RefreshToken, expires); err != nil {
 			http.Error(w, "persist connection failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -89,7 +96,7 @@ func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	conns, err := store.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
+	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
 	if err != nil {
 		http.Error(w, "failed to load connections: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -114,12 +121,12 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 	// load connections and find matching tenant
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	conns, err := store.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
+	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
 	if err != nil {
 		http.Error(w, "failed to load connections: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var found *store.XeroConnection
+	var found *service.XeroConnection
 	for _, c := range conns {
 		if c.TenantID == tenant {
 			found = &c
@@ -143,7 +150,7 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// persist refreshed tokens
-		if err := store.UpsertConnection(ctx, h.dbURL, ownerID, found.TenantID, tr.AccessToken, tr.RefreshToken, tr.ExpiresIn); err != nil {
+		if err := service.UpsertConnection(ctx, h.dbURL, ownerID, found.TenantID, tr.AccessToken, tr.RefreshToken, tr.ExpiresIn); err != nil {
 			http.Error(w, "failed to persist refreshed token: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

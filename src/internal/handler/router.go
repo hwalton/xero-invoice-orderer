@@ -1,24 +1,13 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"html/template"
-	"io"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
-
-	"github.com/hwalton/freeride-campervans/internal/web"
+	mid "github.com/hwalton/freeride-campervans/internal/middleware"
 	authpkg "github.com/hwalton/freeride-campervans/pkg/auth"
-)
-
-type contextKey string
-
-const (
-	ctxUserID contextKey = "userID"
-	ctxClaims contextKey = "claims"
 )
 
 // Handler groups dependencies for route handlers.
@@ -45,9 +34,7 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates 
 
 	// protected routes (require authentication)
 	r.Group(func(r chi.Router) {
-		r.Use(h.RequireAuth)
-
-		// protected home
+		r.Use(mid.RequireAuth(h.auth))
 		r.Get("/", h.homeHandler)
 
 		// Xero connect + callback
@@ -62,125 +49,7 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates 
 	return r
 }
 
-// RequireAuth validates token, stores claims and userID in context.
-// If the request accepts HTML and is not authenticated, redirect to /login.
-func (h *Handler) RequireAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// If Authorization header missing, try access_token cookie (browser session flow)
-		if r.Header.Get("Authorization") == "" {
-			if c, err := r.Cookie("access_token"); err == nil && c.Value != "" {
-				// mask token length for logs
-				tok := c.Value
-				m := 8
-				if len(tok) < m {
-					m = len(tok)
-				}
-				r.Header.Set("Authorization", "Bearer "+c.Value)
-			}
-		}
-
-		claims, ok := h.auth.Authenticate(r)
-		if !ok {
-			http.Redirect(w, r, "/login", http.StatusFound)
-			return
-		}
-		// common claim keys: "sub" or "user_id"
-		var uid string
-		if v, ok := claims["sub"].(string); ok && v != "" {
-			uid = v
-		} else if v, ok := claims["user_id"].(string); ok && v != "" {
-			uid = v
-		}
-		ctx := context.WithValue(r.Context(), ctxClaims, claims)
-		ctx = context.WithValue(ctx, ctxUserID, uid)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-// RequireRole returns middleware that requires a role claim (string match).
-func (h *Handler) RequireRole(role string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, _ := r.Context().Value(ctxClaims).(map[string]interface{})
-			if claims == nil {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
-			if rRole, ok := claims["role"].(string); !ok || rRole != role {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-// login serves the login page via templates
-func (h *Handler) loginHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// render using parsed templates; pass any dynamic data here
-	data := map[string]interface{}{
-		"Title": "Login — Freeride",
-	}
-	if h.templates != nil {
-		_ = h.templates.ExecuteTemplate(w, "login.html", data)
-		return
-	}
-	// fallback: embedded raw file (if templates not provided)
-	if b, err := web.TemplatesFS.ReadFile("templates/login.html"); err == nil {
-		_, _ = io.WriteString(w, string(b))
-		return
-	}
-	http.Error(w, "template error", http.StatusInternalServerError)
-}
-
-// logoutHandler clears auth cookies and redirects to /login
-func (h *Handler) logoutHandler(w http.ResponseWriter, r *http.Request) {
-	names := []string{"access_token", "refresh_token", "user_id", "current_card_id", "review_ahead_days", "max_new_cards_per_day"}
-	for _, n := range names {
-		http.SetCookie(w, &http.Cookie{
-			Name:     n,
-			Value:    "",
-			Path:     "/",
-			Expires:  time.Unix(0, 0),
-			MaxAge:   -1,
-			HttpOnly: true,
-		})
-	}
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
-}
-
-func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
-	uid, _ := r.Context().Value(ctxUserID).(string)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	data := map[string]interface{}{
-		"Title":  "Home",
-		"UserID": uid,
-	}
-
-	if h.templates != nil {
-		if err := h.templates.ExecuteTemplate(w, "home.html", data); err != nil {
-			http.Error(w, "template error", http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// fallback: render embedded template file if parsed templates not provided
-	if b, err := web.TemplatesFS.ReadFile("templates/home.html"); err == nil {
-		t, err := template.New("home").Parse(string(b))
-		if err == nil {
-			if err := t.Execute(w, data); err == nil {
-				return
-			}
-		}
-	}
-
-	// final fallback removed — return an error if no template is available
-	http.Error(w, "template error", http.StatusInternalServerError)
 }
