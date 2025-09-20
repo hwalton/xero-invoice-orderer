@@ -413,3 +413,64 @@ func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessTok
 	}
 	return "", nil
 }
+
+// Supplier represents minimal supplier data from local DB to be synced as Xero Contact.
+type Supplier struct {
+	SupplierID   string `json:"supplier_id"`
+	SupplierName string `json:"supplier_name"`
+	ContactEmail string `json:"contact_email"`
+	Phone        string `json:"phone"`
+}
+
+// SyncSuppliersToXero posts a minimal Contacts payload to Xero.
+// Uses supplier.SupplierID as Contact.ContactID so local supplier_id is preserved in Xero.
+func SyncSuppliersToXero(ctx context.Context, httpClient *http.Client, accessToken, tenantID string, suppliers []Supplier) error {
+	if len(suppliers) == 0 {
+		return nil
+	}
+
+	type contactPayload struct {
+		ContactID    string `json:"ContactID,omitempty"`
+		Name         string `json:"Name,omitempty"`
+		EmailAddress string `json:"EmailAddress,omitempty"`
+	}
+
+	contacts := make([]contactPayload, 0, len(suppliers))
+	for _, s := range suppliers {
+		contacts = append(contacts, contactPayload{
+			ContactID:    s.SupplierID,
+			Name:         s.SupplierName,
+			EmailAddress: s.ContactEmail,
+		})
+	}
+
+	payload := map[string]interface{}{"Contacts": contacts}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.xero.com/api.xro/2.0/Contacts", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Xero-tenant-id", tenantID)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(resp.Body)
+		return fmt.Errorf("xero contacts post failed: status=%d body=%s", resp.StatusCode, buf.String())
+	}
+	// success
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
+}
