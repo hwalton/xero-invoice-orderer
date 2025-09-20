@@ -6,9 +6,9 @@ CREATE TABLE IF NOT EXISTS xero_connections (
   tenant_id TEXT NOT NULL,
   access_token TEXT NOT NULL,
   refresh_token TEXT NOT NULL,
-  expires_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
+  expires_at BIGINT,
+  created_at BIGINT DEFAULT (extract(epoch from now()))::bigint,
+  updated_at BIGINT DEFAULT (extract(epoch from now()))::bigint
 );
 
 ALTER TABLE xero_connections ENABLE ROW LEVEL SECURITY;

@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS parts (
     description TEXT,
     cost_price NUMERIC(12,2),
     sales_price NUMERIC(12,2),
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
+    created_at BIGINT DEFAULT (extract(epoch from now()))::bigint,
+    updated_at BIGINT DEFAULT (extract(epoch from now()))::bigint
 );
 
 CREATE TABLE IF NOT EXISTS parent_child (
@@ -16,7 +16,9 @@ CREATE TABLE IF NOT EXISTS parent_child (
     quantity INTEGER DEFAULT 1,
     PRIMARY KEY (parent, child),
     FOREIGN KEY (parent) REFERENCES parts(part_id) ON DELETE CASCADE,
-    FOREIGN KEY (child) REFERENCES parts(part_id) ON DELETE CASCADE
+    FOREIGN KEY (child) REFERENCES parts(part_id) ON DELETE CASCADE,
+    created_at BIGINT DEFAULT (extract(epoch from now()))::bigint,
+    updated_at BIGINT DEFAULT (extract(epoch from now()))::bigint
 );
 
 CREATE TABLE IF NOT EXISTS suppliers (
@@ -24,7 +26,8 @@ CREATE TABLE IF NOT EXISTS suppliers (
     supplier_name TEXT,
     contact_email TEXT,
     phone TEXT,
-    created_at TIMESTAMPTZ DEFAULT now()
+    created_at BIGINT DEFAULT (extract(epoch from now()))::bigint,
+    updated_at BIGINT DEFAULT (extract(epoch from now()))::bigint
 );
 
 CREATE TABLE IF NOT EXISTS parts_suppliers (
@@ -32,7 +35,9 @@ CREATE TABLE IF NOT EXISTS parts_suppliers (
     supplier_id TEXT NOT NULL,
     PRIMARY KEY (part_id, supplier_id),
     FOREIGN KEY (part_id) REFERENCES parts(part_id) ON DELETE CASCADE,
-    FOREIGN KEY (supplier_id) REFERENCES suppliers(supplier_id) ON DELETE CASCADE
+    FOREIGN KEY (supplier_id) REFERENCES suppliers(supplier_id) ON DELETE CASCADE,
+    created_at BIGINT DEFAULT (extract(epoch from now()))::bigint,
+    updated_at BIGINT DEFAULT (extract(epoch from now()))::bigint
 );
 
 CREATE TABLE IF NOT EXISTS shopping_list (
@@ -40,7 +45,8 @@ CREATE TABLE IF NOT EXISTS shopping_list (
     part_id TEXT NOT NULL,
     quantity INTEGER NOT NULL DEFAULT 1,
     note TEXT,
-    created_at TIMESTAMPTZ DEFAULT now(),
+    created_at BIGINT DEFAULT (extract(epoch from now()))::bigint,
+    updated_at BIGINT DEFAULT (extract(epoch from now()))::bigint,
     FOREIGN KEY (part_id) REFERENCES parts(part_id) ON DELETE RESTRICT
 );
 
