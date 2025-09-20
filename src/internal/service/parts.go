@@ -25,6 +25,7 @@ func LoadParts(ctx context.Context, dbURL string) ([]xero.Part, error) {
 SELECT
   part_id,
   COALESCE(name, '') AS name,
+  COALESCE(description, '') AS description,
   COALESCE(cost_price, 0)::float8 AS cost_price,
   COALESCE(sales_price, 0)::float8 AS sales_price
 FROM parts
@@ -40,6 +41,7 @@ FROM parts
 		if err := rows.Scan(
 			&p.PartID,
 			&p.Name,
+			&p.Description,
 			&p.CostPrice,
 			&p.SalesPrice,
 		); err != nil {

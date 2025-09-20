@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS parts (
     part_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    description TEXT,
     cost_price NUMERIC(12,2),
     sales_price NUMERIC(12,2),
     created_at TIMESTAMPTZ DEFAULT now(),

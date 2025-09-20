@@ -9,23 +9,19 @@ INSERT INTO suppliers (supplier_id, supplier_name, contact_email, phone, created
   ('S-004', 'PlumbRight', 'contact@plumbright.example', '+44 20 7123 0004', now())
 ON CONFLICT (supplier_id) DO NOTHING;
 
--- Core parts (only columns present in current parts table: part_id, name, cost_price, sales_price, created_at, updated_at)
-INSERT INTO parts (part_id, name, cost_price, sales_price, created_at, updated_at) VALUES
-  ('P-0001', 'Marine-grade Plywood 18mm', 60.00, 85.00, now(), now()),
-  ('P-0002', 'Insulation Foam 25mm', 6.50, 12.50, now(), now()),
-  ('P-0003', '12V LED Strip (5m)', 9.00, 22.00, now(), now()),
-  ('P-0004', '12V Water Pump', 28.00, 55.00, now(), now()),
-  ('P-0005', 'Camper Sink 300x300mm', 25.00, 45.00, now(), now()),
-  ('P-0006', 'Propane 2-burner Cooker', 80.00, 120.00, now(), now()),
-  ('P-0007', '100Ah 12V Lithium Battery', 450.00, 650.00, now(), now()),
-  ('P-0008', 'Battery Charger / B2B', 140.00, 220.00, now(), now()),
-  ('KIT-001', 'Kitchen Unit (assembly)', 240.00, 420.00, now(), now())
-ON CONFLICT (part_id) DO NOTHING;
-
--- Add small parts (ensure these exist before parent_child references)
-INSERT INTO parts (part_id, name, cost_price, sales_price, created_at, updated_at) VALUES
-  ('P-0009', 'Cabinet Hinge (pair)', 2.50, 6.50, now(), now()),
-  ('P-0010', 'Stainless Screws 4x20mm (pack 50)', 1.20, 4.50, now(), now())
+-- Core parts (only columns present in current parts table: part_id, name, description, cost_price, sales_price, created_at, updated_at)
+INSERT INTO parts (part_id, name, description, cost_price, sales_price, created_at, updated_at) VALUES
+  ('P-0001', 'Marine-grade Plywood 18mm', 'High-quality marine plywood, moisture resistant, 1220x2440mm', 60.00, 85.00, now(), now()),
+  ('P-0002', 'Insulation Foam 25mm', 'Closed-cell insulation foam sheet, 25mm thick', 6.50, 12.50, now(), now()),
+  ('P-0003', '12V LED Strip (5m)', 'Flexible 12V LED strip, 5m roll, warm white', 9.00, 22.00, now(), now()),
+  ('P-0004', '12V Water Pump', 'Compact 12V diaphragm water pump for camper sinks', 28.00, 55.00, now(), now()),
+  ('P-0005', 'Camper Sink 300x300mm', 'Stainless steel sink, 300x300mm with drain', 25.00, 45.00, now(), now()),
+  ('P-0006', 'Propane 2-burner Cooker', 'Portable 2-burner propane cooker for van kitchens', 80.00, 120.00, now(), now()),
+  ('P-0007', '100Ah 12V Lithium Battery', 'High-capacity 100Ah 12V LiFePO4 battery', 450.00, 650.00, now(), now()),
+  ('P-0008', 'Battery Charger / B2B', 'Battery-to-battery charger for alternator charging', 140.00, 220.00, now(), now()),
+  ('KIT-001', 'Kitchen Unit (assembly)', 'Pre-assembled kitchen unit kit (carcass + fittings)', 240.00, 420.00, now(), now()),
+  ('P-0009', 'Cabinet Hinge (pair)', 'Concealed cabinet hinge, sold as a pair', 2.50, 6.50, now(), now()),
+  ('P-0010', 'Stainless Screws 4x20mm (pack 50)', 'Pack of 50 stainless steel wood screws, 4x20mm', 1.20, 4.50, now(), now())
 ON CONFLICT (part_id) DO NOTHING;
 
 -- parts_suppliers (part_id, supplier_id, price)
