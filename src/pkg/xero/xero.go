@@ -352,3 +352,64 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 	}
 	return out, nil
 }
+
+// POItem is a minimal purchase order line (ItemCode + Quantity).
+type POItem struct {
+	ItemCode string `json:"ItemCode"`
+	Quantity int    `json:"Quantity"`
+}
+
+// CreatePurchaseOrder posts a minimal PurchaseOrder payload to Xero for the given supplier ContactID.
+// Assumes supplierID maps to Xero ContactID. Returns the created PurchaseOrderID on success.
+func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessToken, tenantID, supplierContactID string, items []POItem) (string, error) {
+	if len(items) == 0 {
+		return "", fmt.Errorf("no items")
+	}
+	payload := map[string]interface{}{
+		"PurchaseOrders": []map[string]interface{}{
+			{
+				"Contact": map[string]string{
+					"ContactID": supplierContactID,
+				},
+				"LineItems": items,
+				"Status":    "AUTHORISED",
+			},
+		},
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.xero.com/api.xro/2.0/PurchaseOrders", bytes.NewReader(b))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Xero-tenant-id", tenantID)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	// simple status check and return empty id for now; parsing response can be added as needed
+	if resp.StatusCode >= 300 {
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(resp.Body)
+		return "", fmt.Errorf("create purchase order failed: status=%d body=%s", resp.StatusCode, buf.String())
+	}
+	// parse created PurchaseOrder ID if present
+	var res struct {
+		PurchaseOrders []struct {
+			PurchaseOrderID string `json:"PurchaseOrderID"`
+		} `json:"PurchaseOrders"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err == nil && len(res.PurchaseOrders) > 0 {
+		return res.PurchaseOrders[0].PurchaseOrderID, nil
+	}
+	return "", nil
+}

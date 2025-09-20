@@ -373,3 +373,108 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Error(w, "template error", http.StatusInternalServerError)
 }
+
+// createPurchaseOrdersHandler reads unordered shopping_list rows, groups by supplier,
+// creates a purchase order per supplier via pkg/xero, marks rows ordered, and sets a message.
+func (h *Handler) createPurchaseOrdersHandler(w http.ResponseWriter, r *http.Request) {
+	if h.auth != nil {
+		r = mid.EnsureUserIDInContext(r, h.auth)
+	}
+	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
+	if ownerID == "" {
+		http.Error(w, "owner id missing", http.StatusUnauthorized)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	// load Xero connection for owner
+	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
+	if err != nil {
+		http.Error(w, "failed to load connections: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(conns) == 0 {
+		http.Error(w, "no xero connection found for owner", http.StatusNotFound)
+		return
+	}
+	found := &conns[0]
+
+	// refresh token if near expiry
+	now := time.Now().UTC()
+	if found.ExpiresAt <= now.Unix()+60 {
+		clientID := os.Getenv("XERO_CLIENT_ID")
+		clientSecret := os.Getenv("XERO_CLIENT_SECRET")
+		tr, err := xero.RefreshToken(ctx, h.client, clientID, clientSecret, found.RefreshToken)
+		if err != nil {
+			http.Error(w, "refresh token failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := service.UpsertConnection(ctx, h.dbURL, ownerID, found.TenantID, tr.AccessToken, tr.RefreshToken, tr.ExpiresIn); err != nil {
+			http.Error(w, "failed to persist refreshed token: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		found.AccessToken = tr.AccessToken
+		secs := tr.ExpiresIn
+		if secs == 0 {
+			secs = 3600
+		}
+		found.ExpiresAt = time.Now().Unix() + secs
+	}
+
+	// 1) load unordered shopping list rows
+	rows, err := service.GetUnorderedShoppingRows(ctx, h.dbURL)
+	if err != nil {
+		http.Error(w, "failed to read shopping list: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(rows) == 0 {
+		utils.SetCookie(w, r, "xero_sync_msg", "No unordered shopping list items found.", time.Now().Add(5*time.Minute))
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	// 2) group rows by supplier (and aggregate quantities). returns map[supplierID][]service.SupplierItem
+	grouped, err := service.GroupShoppingItemsBySupplier(ctx, h.dbURL, rows)
+	if err != nil {
+		utils.SetCookie(w, r, "xero_sync_msg", "Failed to group items by supplier: "+err.Error(), time.Now().Add(5*time.Minute))
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	// 3) create POs per supplier and collect list IDs to mark ordered
+	var allListIDs []int
+	created := 0
+	for supplierID, items := range grouped {
+		// transform to pkg/xero PO items
+		var poItems []xero.POItem
+		for _, it := range items {
+			poItems = append(poItems, xero.POItem{
+				ItemCode: it.PartID,
+				Quantity: it.Quantity,
+			})
+			allListIDs = append(allListIDs, it.ListIDs...)
+		}
+
+		_, err := xero.CreatePurchaseOrder(ctx, h.client, found.AccessToken, found.TenantID, supplierID, poItems)
+		if err != nil {
+			utils.SetCookie(w, r, "xero_sync_msg", "Failed to create PO for supplier "+supplierID+": "+err.Error(), time.Now().Add(5*time.Minute))
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
+		created++
+	}
+
+	// 4) mark rows ordered
+	if len(allListIDs) > 0 {
+		if err := service.MarkShoppingListOrdered(ctx, h.dbURL, allListIDs); err != nil {
+			http.Error(w, "failed to mark shopping list items ordered: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	msg := fmt.Sprintf("Created %d purchase order(s), %d shopping list rows marked ordered", created, len(allListIDs))
+	utils.SetCookie(w, r, "xero_sync_msg", msg, time.Now().Add(5*time.Minute))
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}

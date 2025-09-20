@@ -73,13 +73,21 @@
     {{ if .HasXeroConnection }}
       <h2 class="text-xl font-semibold mb-3">Xero Controls</h2>
       <div class="space-y-3">
-        <!-- Sync button -->
-        <form method="POST" action="/xero/sync" style="margin:0">
-          <input type="hidden" name="tenant" value="{{ .XeroTenantID }}" />
-          <button type="submit" class="inline-flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition">
-            Sync parts to Xero
-          </button>
-        </form>
+        <!-- Sync button + Create POs (same row, spaced) -->
+        <div class="flex items-center justify-between">
+          <form method="POST" action="/xero/sync" style="margin:0">
+            <input type="hidden" name="tenant" value="{{ .XeroTenantID }}" />
+            <button type="submit" class="inline-flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition">
+              Sync Supabase to Xero
+            </button>
+          </form>
+
+          <form method="POST" action="/xero/create-pos" style="margin:0">
+            <button type="submit" class="inline-flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition">
+              Create Purchase Orders
+            </button>
+          </form>
+        </div>
         {{ if .XeroSyncMessage }}
           <div class="text-sm text-gray-700 mt-2" role="status">{{ .XeroSyncMessage }}</div>
         {{ end }}
