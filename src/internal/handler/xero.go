@@ -3,16 +3,21 @@ package handler
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html/template"
+	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	mid "github.com/hwalton/freeride-campervans/internal/middleware"
 	"github.com/hwalton/freeride-campervans/internal/service"
 	"github.com/hwalton/freeride-campervans/internal/utils"
+	"github.com/hwalton/freeride-campervans/internal/web"
 	"github.com/hwalton/freeride-campervans/pkg/xero"
 )
 
@@ -27,17 +32,10 @@ func generateState(n int) (string, error) {
 
 // xeroConnect redirects to Xero auth URL
 func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
-	// prefer ownerID from user_id cookie to avoid re-parsing JWT
-	var ownerID string
-	if c, err := r.Cookie("user_id"); err == nil && c.Value != "" {
-		ownerID = c.Value
-	} else if h.auth != nil {
-		// fallback to middleware helper if cookie missing
-		if got, ok := mid.GetUserIDFromRequest(r, h.auth); ok && got != "" {
-			ownerID = got
-		}
+	if h.auth != nil {
+		r = mid.EnsureUserIDInContext(r, h.auth)
 	}
-
+	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
 	if ownerID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -54,6 +52,9 @@ func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	ttl := 300 // seconds (5 minutes) — adjust as needed
 	if err := service.CreateOAuthState(r.Context(), h.dbURL, state, ownerID, ttl); err != nil {
+		// Log the underlying error for debugging (do not expose internal details to clients).
+		// Use server logs to inspect permission/constraint/connection issues.
+		log.Printf("xeroConnect: CreateOAuthState failed: %v", err)
 		http.Error(w, "failed to persist state", http.StatusInternalServerError)
 		return
 	}
@@ -121,7 +122,10 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 // xeroConnections lists stored Xero connections for the current user.
 func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request) {
-	ownerID, _ := r.Context().Value(ctxUserID).(string)
+	if h.auth != nil {
+		r = mid.EnsureUserIDInContext(r, h.auth)
+	}
+	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
 	if ownerID == "" {
 		http.Error(w, "owner id missing", http.StatusUnauthorized)
 		return
@@ -136,25 +140,15 @@ func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(conns)
+	_ = json.NewEncoder(w).Encode(conns)
 }
 
 // xeroSync triggers a sync for tenant (tenant path param).
 func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
-	// prefer owner id from context/cookie/auth helper (same as before)
-	ownerID, _ := r.Context().Value(ctxUserID).(string)
-	if ownerID == "" {
-		if c, err := r.Cookie("user_id"); err == nil && c.Value != "" {
-			ownerID = c.Value
-			r = r.WithContext(context.WithValue(r.Context(), ctxUserID, ownerID))
-		} else if h.auth != nil {
-			if got, ok := mid.GetUserIDFromRequest(r, h.auth); ok && got != "" {
-				ownerID = got
-				r = r.WithContext(context.WithValue(r.Context(), ctxUserID, ownerID))
-			}
-		}
+	if h.auth != nil {
+		r = mid.EnsureUserIDInContext(r, h.auth)
 	}
-
+	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
 	if ownerID == "" {
 		http.Error(w, "owner id missing", http.StatusUnauthorized)
 		return
@@ -178,7 +172,7 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 
 	// token refresh, load parts, sync to Xero (unchanged)
 	now := time.Now().UTC()
-	if found.ExpiresAt.Before(now.Add(1 * time.Minute)) {
+	if found.ExpiresAt <= now.Unix()+60 {
 		clientID := os.Getenv("XERO_CLIENT_ID")
 		clientSecret := os.Getenv("XERO_CLIENT_SECRET")
 		tr, err := xero.RefreshToken(ctx, h.client, clientID, clientSecret, found.RefreshToken)
@@ -195,7 +189,7 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 		if secs == 0 {
 			secs = 3600
 		}
-		found.ExpiresAt = time.Now().Add(time.Duration(secs) * time.Second)
+		found.ExpiresAt = time.Now().Unix() + secs
 	}
 
 	parts, err := service.LoadParts(ctx, h.dbURL)
@@ -209,11 +203,290 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// NEW: sync suppliers table to Xero Contacts
+	suppliers, err := service.LoadSuppliers(ctx, h.dbURL)
+	if err != nil {
+		http.Error(w, "failed to load suppliers: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := xero.SyncSuppliersToXero(ctx, h.client, found.AccessToken, found.TenantID, suppliers); err != nil {
+		http.Error(w, "sync suppliers to xero failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	// set a short-lived cookie with the sync message (read by homeHandler)
 	when := time.Now().UTC().Format("2006-01-02 15:04:05")
-	msg := fmt.Sprintf("Parts list synced to xero (%s)", when)
+	msg := fmt.Sprintf("Parts and suppliers synced to xero (%s)", when)
 	utils.SetCookie(w, r, "xero_sync_msg", msg, time.Now().Add(5*time.Minute))
 
 	// redirect back to home
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// getInvoiceHandler POSTs a form with invoice_id, queries Xero for that invoice's line item codes,
+// and renders the home page with the returned items listed.
+func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
+	if h.auth != nil {
+		r = mid.EnsureUserIDInContext(r, h.auth)
+	}
+	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
+	if ownerID == "" {
+		http.Error(w, "owner id missing", http.StatusUnauthorized)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	invoiceID := strings.TrimSpace(r.FormValue("invoice_id"))
+	if invoiceID == "" {
+		http.Error(w, "invoice id required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
+	if err != nil {
+		http.Error(w, "failed to load connections: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(conns) == 0 {
+		http.Error(w, "no xero connection found for owner", http.StatusNotFound)
+		return
+	}
+	found := &conns[0]
+
+	// refresh token if near expiry
+	now := time.Now().UTC()
+	if found.ExpiresAt <= now.Unix()+60 {
+		clientID := os.Getenv("XERO_CLIENT_ID")
+		clientSecret := os.Getenv("XERO_CLIENT_SECRET")
+		tr, err := xero.RefreshToken(ctx, h.client, clientID, clientSecret, found.RefreshToken)
+		if err != nil {
+			http.Error(w, "refresh token failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := service.UpsertConnection(ctx, h.dbURL, ownerID, found.TenantID, tr.AccessToken, tr.RefreshToken, tr.ExpiresIn); err != nil {
+			http.Error(w, "failed to persist refreshed token: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		found.AccessToken = tr.AccessToken
+		secs := tr.ExpiresIn
+		if secs == 0 {
+			secs = 3600
+		}
+		found.ExpiresAt = time.Now().Unix() + secs
+	}
+
+	// fetch invoice lines
+	itemLines, err := xero.GetInvoiceItemCodes(ctx, h.client, found.AccessToken, found.TenantID, invoiceID)
+	if err != nil {
+		http.Error(w, "failed to fetch invoice: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Build roots for BOM resolution
+	roots := make([]service.RootItem, 0, len(itemLines))
+	for _, ln := range itemLines {
+		if ln.ItemCode == "" || ln.Quantity <= 0 {
+			continue
+		}
+		roots = append(roots, service.RootItem{
+			PartID:   ln.ItemCode,
+			Name:     ln.Name,
+			Quantity: ln.Quantity,
+		})
+	}
+	if len(roots) == 0 {
+		utils.SetCookie(w, r, "xero_sync_msg", "No valid invoice items found.", time.Now().Add(5*time.Minute))
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	// Resolve BOM (maxDepth 12)
+	bom, errMsg, err := service.ResolveInvoiceBOM(ctx, h.dbURL, roots, 12)
+	if err != nil {
+		http.Error(w, "BOM resolution failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if errMsg != "" {
+		utils.SetCookie(w, r, "xero_sync_msg", errMsg, time.Now().Add(5*time.Minute))
+		// ensure previous invoice cookies are cleared
+		utils.ClearCookie(w, r, "xero_invoice_bom")
+		utils.ClearCookie(w, r, "xero_invoice_number")
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	// success: store BOM in cookie and redirect home
+	b, _ := json.Marshal(bom)
+	enc := base64.StdEncoding.EncodeToString(b)
+	utils.SetCookie(w, r, "xero_invoice_bom", enc, time.Now().Add(5*time.Minute))
+	utils.SetCookie(w, r, "xero_invoice_number", invoiceID, time.Now().Add(5*time.Minute))
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+	return
+	// Render home template with invoice items included (reusing homeHandler rendering logic).
+	// Load connections for template as in homeHandler
+	var connsForUI []service.XeroConnection
+	if c, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID); err == nil {
+		connsForUI = c
+	}
+
+	var hasXeroConn bool
+	var tenantID string
+	var createdAt interface{}
+	if len(connsForUI) > 0 {
+		hasXeroConn = true
+		tenantID = connsForUI[0].TenantID
+		createdAt = connsForUI[0].CreatedAt
+	}
+
+	// Build sync message from short-lived cookie (set after successful sync)
+	var xeroSyncMsg string
+	if c, err := r.Cookie("xero_sync_msg"); err == nil && c.Value != "" {
+		xeroSyncMsg = c.Value
+		utils.ClearCookie(w, r, "xero_sync_msg")
+	}
+
+	data := map[string]interface{}{
+		"Title":             "Home",
+		"UserID":            ownerID,
+		"HasXeroConnection": hasXeroConn,
+		"XeroTenantID":      tenantID,
+		"XeroCreatedAt":     createdAt,
+		"XeroSyncMessage":   xeroSyncMsg,
+		"InvoiceItems":      itemLines,
+		"InvoiceNumber":     invoiceID,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if h.templates != nil {
+		if err := h.templates.ExecuteTemplate(w, "home.html", data); err != nil {
+			http.Error(w, "template error", http.StatusInternalServerError)
+		}
+		return
+	}
+	if b, err := web.TemplatesFS.ReadFile("templates/home.html"); err == nil {
+		t, err := template.New("home").Parse(string(b))
+		if err != nil {
+			http.Error(w, "template error", http.StatusInternalServerError)
+			return
+		}
+		if err := t.Execute(w, data); err != nil {
+			http.Error(w, "template error", http.StatusInternalServerError)
+			return
+		}
+		return
+	}
+	http.Error(w, "template error", http.StatusInternalServerError)
+}
+
+// createPurchaseOrdersHandler reads unordered shopping_list rows, groups by supplier,
+// creates a purchase order per supplier via pkg/xero, marks rows ordered, and sets a message.
+func (h *Handler) createPurchaseOrdersHandler(w http.ResponseWriter, r *http.Request) {
+	if h.auth != nil {
+		r = mid.EnsureUserIDInContext(r, h.auth)
+	}
+	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
+	if ownerID == "" {
+		http.Error(w, "owner id missing", http.StatusUnauthorized)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	// load Xero connection for owner
+	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
+	if err != nil {
+		http.Error(w, "failed to load connections: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(conns) == 0 {
+		http.Error(w, "no xero connection found for owner", http.StatusNotFound)
+		return
+	}
+	found := &conns[0]
+
+	// refresh token if near expiry
+	now := time.Now().UTC()
+	if found.ExpiresAt <= now.Unix()+60 {
+		clientID := os.Getenv("XERO_CLIENT_ID")
+		clientSecret := os.Getenv("XERO_CLIENT_SECRET")
+		tr, err := xero.RefreshToken(ctx, h.client, clientID, clientSecret, found.RefreshToken)
+		if err != nil {
+			http.Error(w, "refresh token failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := service.UpsertConnection(ctx, h.dbURL, ownerID, found.TenantID, tr.AccessToken, tr.RefreshToken, tr.ExpiresIn); err != nil {
+			http.Error(w, "failed to persist refreshed token: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		found.AccessToken = tr.AccessToken
+		secs := tr.ExpiresIn
+		if secs == 0 {
+			secs = 3600
+		}
+		found.ExpiresAt = time.Now().Unix() + secs
+	}
+
+	// 1) load unordered shopping list rows
+	rows, err := service.GetUnorderedShoppingRows(ctx, h.dbURL)
+	if err != nil {
+		http.Error(w, "failed to read shopping list: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(rows) == 0 {
+		utils.SetCookie(w, r, "xero_sync_msg", "No unordered shopping list items found.", time.Now().Add(5*time.Minute))
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	// 2) group rows by supplier (and aggregate quantities). returns map[supplierID][]service.SupplierItem
+	grouped, err := service.GroupShoppingItemsBySupplier(ctx, h.dbURL, rows)
+	if err != nil {
+		utils.SetCookie(w, r, "xero_sync_msg", "Failed to group items by supplier: "+err.Error(), time.Now().Add(5*time.Minute))
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	// 3) create POs per supplier and collect list IDs to mark ordered
+	var allListIDs []int
+	created := 0
+	for supplierName, items := range grouped {
+		// transform to pkg/xero PO items
+		var poItems []xero.POItem
+		for _, it := range items {
+			poItems = append(poItems, xero.POItem{
+				ItemCode:    it.PartID,
+				Quantity:    it.Quantity,
+				Description: it.PartID, // minimal description required by Xero for AUTHORISED POs
+			})
+			allListIDs = append(allListIDs, it.ListIDs...)
+		}
+
+		_, err := xero.CreatePurchaseOrder(ctx, h.client, found.AccessToken, found.TenantID, supplierName, poItems)
+		if err != nil {
+			utils.SetCookie(w, r, "xero_sync_msg", "Failed to create PO for supplier "+supplierName+": "+err.Error(), time.Now().Add(5*time.Minute))
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
+		created++
+	}
+
+	// 4) mark rows ordered
+	if len(allListIDs) > 0 {
+		if err := service.MarkShoppingListOrdered(ctx, h.dbURL, allListIDs); err != nil {
+			http.Error(w, "failed to mark shopping list items ordered: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	msg := fmt.Sprintf("Created %d purchase order(s), %d shopping list rows marked ordered", created, len(allListIDs))
+	utils.SetCookie(w, r, "xero_sync_msg", msg, time.Now().Add(5*time.Minute))
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

@@ -22,16 +22,6 @@ type Handler struct {
 	_ sync.Mutex
 }
 
-// contextKey is a private type to avoid collisions when storing values in context.
-type contextKey string
-
-const (
-	// ctxClaims stores JWT/identity claims (map[string]interface{})
-	ctxClaims contextKey = "claims"
-	// ctxUserID stores the authenticated user's id (string)
-	ctxUserID contextKey = "userID"
-)
-
 // NewRouter now accepts dbURL so handlers can persist connections.
 func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates *template.Template) http.Handler {
 	h := &Handler{
@@ -58,6 +48,9 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates 
 		r.Get("/xero/connections", h.xeroConnectionsHandler)
 
 		r.Post("/xero/sync", h.xeroSyncHandler)
+		r.Post("/xero/invoice", h.getInvoiceHandler)
+		r.Post("/xero/create-pos", h.createPurchaseOrdersHandler)
+		r.Post("/shopping-list/add", h.addShoppingListHandler) // add invoice lines to shopping_list
 	})
 
 	return r

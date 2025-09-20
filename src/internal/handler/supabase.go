@@ -1,10 +1,16 @@
 package handler
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
+	mid "github.com/hwalton/freeride-campervans/internal/middleware"
+	"github.com/hwalton/freeride-campervans/internal/service"
 	"github.com/hwalton/freeride-campervans/internal/utils"
 	"github.com/hwalton/freeride-campervans/internal/web"
 	"github.com/hwalton/freeride-campervans/pkg/supabasetoolbox"
@@ -56,7 +62,74 @@ func (h *Handler) supabaseConnectHandler(w http.ResponseWriter, r *http.Request)
 	exp := time.Now().Add(time.Duration(3600) * time.Second) // align with access token expiry
 	utils.SetCookie(w, r, "access_token", access, exp)
 	utils.SetCookie(w, r, "refresh_token", refresh, time.Now().Add(30*24*time.Hour))
-	utils.SetCookie(w, r, "user_id", userID, time.Now().Add(30*24*time.Hour))
 
+	// keep user id in request context instead of a cookie (for this request)
+	r = r.WithContext(context.WithValue(r.Context(), mid.CtxUserID, userID))
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (h *Handler) addShoppingListHandler(w http.ResponseWriter, r *http.Request) {
+	if h.auth != nil {
+		r = mid.EnsureUserIDInContext(r, h.auth)
+	}
+	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
+	if ownerID == "" {
+		http.Error(w, "owner id missing", http.StatusUnauthorized)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	itemCodes := r.Form["item_code"]
+	qtys := r.Form["qty"]
+
+	if len(itemCodes) == 0 || len(qtys) == 0 {
+		http.Error(w, "invalid input", http.StatusBadRequest)
+		return
+	}
+
+	// aggregate by part_id
+	type agg struct{ qty int }
+	sum := make(map[string]int)
+	for i := range itemCodes {
+		code := strings.TrimSpace(itemCodes[i])
+		if code == "" {
+			continue
+		}
+		qStr := "1"
+		if i < len(qtys) && qtys[i] != "" {
+			qStr = qtys[i]
+		}
+		q, err := strconv.Atoi(qStr)
+		if err != nil || q <= 0 {
+			continue
+		}
+		sum[code] += q
+	}
+
+	if len(sum) == 0 {
+		http.Error(w, "no valid items", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	added := 0
+	for code, q := range sum {
+		if err := service.AddShoppingListEntry(ctx, h.dbURL, code, q, false); err != nil {
+			http.Error(w, "failed to add to shopping list: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		added++
+	}
+
+	// set a small flash cookie and redirect back to home
+	msg := fmt.Sprintf("%d items added to shopping list", added)
+	utils.SetCookie(w, r, "xero_sync_msg", msg, time.Now().Add(5*time.Minute))
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
