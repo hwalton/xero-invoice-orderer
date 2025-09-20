@@ -27,11 +27,10 @@ func generateState(n int) (string, error) {
 
 // xeroConnect redirects to Xero auth URL
 func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
-	// ensure user id in context (populated from cookie/auth) and read it
 	if h.auth != nil {
 		r = mid.EnsureUserIDInContext(r, h.auth)
 	}
-	ownerID := mid.GetUserID(r.Context())
+	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
 	if ownerID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -118,7 +117,7 @@ func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request)
 	if h.auth != nil {
 		r = mid.EnsureUserIDInContext(r, h.auth)
 	}
-	ownerID := mid.GetUserID(r.Context())
+	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
 	if ownerID == "" {
 		http.Error(w, "owner id missing", http.StatusUnauthorized)
 		return
@@ -138,11 +137,10 @@ func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request)
 
 // xeroSync triggers a sync for tenant (tenant path param).
 func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
-	// ensure user id in context (populated from cookie/auth) and read it
 	if h.auth != nil {
 		r = mid.EnsureUserIDInContext(r, h.auth)
 	}
-	ownerID := mid.GetUserID(r.Context())
+	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
 	if ownerID == "" {
 		http.Error(w, "owner id missing", http.StatusUnauthorized)
 		return

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	mid "github.com/hwalton/freeride-campervans/internal/middleware"
 	"github.com/hwalton/freeride-campervans/internal/utils"
 	"github.com/hwalton/freeride-campervans/internal/web"
 	"github.com/hwalton/freeride-campervans/pkg/supabasetoolbox"
@@ -58,8 +59,8 @@ func (h *Handler) supabaseConnectHandler(w http.ResponseWriter, r *http.Request)
 	utils.SetCookie(w, r, "access_token", access, exp)
 	utils.SetCookie(w, r, "refresh_token", refresh, time.Now().Add(30*24*time.Hour))
 
-	// keep user id in request context instead of a cookie
-	r = r.WithContext(context.WithValue(r.Context(), ctxUserID, userID))
+	// keep user id in request context instead of a cookie (for this request)
+	r = r.WithContext(context.WithValue(r.Context(), mid.CtxUserID, userID))
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

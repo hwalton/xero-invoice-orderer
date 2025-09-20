@@ -10,8 +10,9 @@ import (
 type contextKey string
 
 const (
-	ctxUserID contextKey = "userID"
-	ctxClaims contextKey = "claims"
+	// export keys so handlers can access them via mid.CtxUserID / mid.CtxClaims
+	CtxUserID contextKey = "userID"
+	CtxClaims contextKey = "claims"
 )
 
 // RequireAuth returns middleware that validates JWT (via auth) and sets claims/userID in context.
@@ -37,8 +38,8 @@ func RequireAuth(auth authpkg.Authenticator) func(http.Handler) http.Handler {
 			} else if v, ok := claims["user_id"].(string); ok && v != "" {
 				uid = v
 			}
-			ctx := context.WithValue(r.Context(), ctxClaims, claims)
-			ctx = context.WithValue(ctx, ctxUserID, uid)
+			ctx := context.WithValue(r.Context(), CtxClaims, claims)
+			ctx = context.WithValue(ctx, CtxUserID, uid)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -48,7 +49,7 @@ func RequireAuth(auth authpkg.Authenticator) func(http.Handler) http.Handler {
 func RequireRole(role string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, _ := r.Context().Value(ctxClaims).(map[string]interface{})
+			claims, _ := r.Context().Value(CtxClaims).(map[string]interface{})
 			if claims == nil {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
@@ -62,11 +63,11 @@ func RequireRole(role string) func(http.Handler) http.Handler {
 	}
 }
 
-// EnsureUserIDInContext ensures ctxUserID (and ctxClaims) are set on the request context when possible.
+// EnsureUserIDInContext ensures CtxUserID (and CtxClaims) are set on the request context when possible.
 // Returns a request with an updated context (original request returned if nothing to add).
 func EnsureUserIDInContext(r *http.Request, auth authpkg.Authenticator) *http.Request {
 	// already present
-	if v, ok := r.Context().Value(ctxUserID).(string); ok && v != "" {
+	if v, ok := r.Context().Value(CtxUserID).(string); ok && v != "" {
 		return r
 	}
 
@@ -98,8 +99,8 @@ func EnsureUserIDInContext(r *http.Request, auth authpkg.Authenticator) *http.Re
 		return r
 	}
 
-	ctx := context.WithValue(r.Context(), ctxClaims, claims)
-	ctx = context.WithValue(ctx, ctxUserID, uid)
+	ctx := context.WithValue(r.Context(), CtxClaims, claims)
+	ctx = context.WithValue(ctx, CtxUserID, uid)
 	return r.WithContext(ctx)
 }
 
@@ -109,14 +110,6 @@ func SetUserIDInContext(r *http.Request, userID string) *http.Request {
 	if userID == "" {
 		return r
 	}
-	ctx := context.WithValue(r.Context(), ctxUserID, userID)
+	ctx := context.WithValue(r.Context(), CtxUserID, userID)
 	return r.WithContext(ctx)
-}
-
-// GetUserID returns the user id stored in ctx, or empty string if not present.
-func GetUserID(ctx context.Context) string {
-	if v, ok := ctx.Value(ctxUserID).(string); ok {
-		return v
-	}
-	return ""
 }

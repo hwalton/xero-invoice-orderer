@@ -46,7 +46,7 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 	if h.auth != nil {
 		r = mid.EnsureUserIDInContext(r, h.auth)
 	}
-	userID := mid.GetUserID(r.Context())
+	userID, _ := r.Context().Value(mid.CtxUserID).(string)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
