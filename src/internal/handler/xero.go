@@ -266,21 +266,50 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 		found.ExpiresAt = time.Now().Add(time.Duration(secs) * time.Second)
 	}
 
-	// fetch invoice lines (now returns []xero.InvoiceLine)
+	// fetch invoice lines
 	itemLines, err := xero.GetInvoiceItemCodes(ctx, h.client, found.AccessToken, found.TenantID, invoiceID)
 	if err != nil {
 		http.Error(w, "failed to fetch invoice: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// marshal items and set short-lived cookie (base64-encoded) then redirect to home
-	b, err := json.Marshal(itemLines)
-	if err != nil {
-		http.Error(w, "failed to marshal invoice items", http.StatusInternalServerError)
+	// Build roots for BOM resolution
+	roots := make([]service.RootItem, 0, len(itemLines))
+	for _, ln := range itemLines {
+		if ln.ItemCode == "" || ln.Quantity <= 0 {
+			continue
+		}
+		roots = append(roots, service.RootItem{
+			PartID:   ln.ItemCode,
+			Name:     ln.Name,
+			Quantity: ln.Quantity,
+		})
+	}
+	if len(roots) == 0 {
+		utils.SetCookie(w, r, "xero_sync_msg", "No valid invoice items found.", time.Now().Add(5*time.Minute))
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
+
+	// Resolve BOM (maxDepth 12)
+	bom, errMsg, err := service.ResolveInvoiceBOM(ctx, h.dbURL, roots, 12)
+	if err != nil {
+		http.Error(w, "BOM resolution failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if errMsg != "" {
+		utils.SetCookie(w, r, "xero_sync_msg", errMsg, time.Now().Add(5*time.Minute))
+		// ensure previous invoice cookies are cleared
+		utils.ClearCookie(w, r, "xero_invoice_bom")
+		utils.ClearCookie(w, r, "xero_invoice_number")
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	// success: store BOM in cookie and redirect home
+	b, _ := json.Marshal(bom)
 	enc := base64.StdEncoding.EncodeToString(b)
-	utils.SetCookie(w, r, "xero_invoice_items", enc, time.Now().Add(5*time.Minute))
+	utils.SetCookie(w, r, "xero_invoice_bom", enc, time.Now().Add(5*time.Minute))
 	utils.SetCookie(w, r, "xero_invoice_number", invoiceID, time.Now().Add(5*time.Minute))
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)

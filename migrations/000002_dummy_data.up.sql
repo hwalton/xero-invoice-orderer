@@ -34,7 +34,6 @@ INSERT INTO parts_suppliers (part_id, supplier_id, price) VALUES
   ('P-0006','S-001',80.00),
   ('P-0007','S-003',450.00),
   ('P-0008','S-003',140.00),
-  ('KIT-001','S-001',240.00),
   ('P-0009','S-001',2.50),
   ('P-0010','S-001',1.20)
 ON CONFLICT (part_id, supplier_id) DO NOTHING;

@@ -89,6 +89,14 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		utils.ClearCookie(w, r, "xero_invoice_items")
 	}
+	// read BOM cookie (base64-encoded), decode and clear it
+	var invoiceBOM []service.BOMNode
+	if c, err := r.Cookie("xero_invoice_bom"); err == nil && c.Value != "" {
+		if decoded, derr := base64.StdEncoding.DecodeString(c.Value); derr == nil {
+			_ = json.Unmarshal(decoded, &invoiceBOM)
+		}
+		utils.ClearCookie(w, r, "xero_invoice_bom")
+	}
 	var invoiceNumber string
 	if c, err := r.Cookie("xero_invoice_number"); err == nil && c.Value != "" {
 		invoiceNumber = c.Value
@@ -102,7 +110,7 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 		"XeroTenantID":      tenantID,
 		"XeroCreatedAt":     createdAt,
 		"XeroSyncMessage":   xeroSyncMsg,
-		"InvoiceItems":      invoiceItems, // now []xero.InvoiceLine
+		"InvoiceBOM":        invoiceBOM,
 		"InvoiceNumber":     invoiceNumber,
 	}
 

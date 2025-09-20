@@ -85,24 +85,20 @@ func (h *Handler) addShoppingListHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	itemCodes := r.Form["item_code"]
-	itemNames := r.Form["item_name"]
 	qtys := r.Form["qty"]
 
-	// basic validation: arrays must align
-	if len(itemCodes) == 0 || len(qtys) == 0 || len(itemCodes) != len(qtys) {
+	if len(itemCodes) == 0 || len(qtys) == 0 {
 		http.Error(w, "invalid input", http.StatusBadRequest)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-
-	added := 0
+	// aggregate by part_id
+	type agg struct{ qty int }
+	sum := make(map[string]int)
 	for i := range itemCodes {
 		code := strings.TrimSpace(itemCodes[i])
-		name := ""
-		if i < len(itemNames) {
-			name = strings.TrimSpace(itemNames[i])
+		if code == "" {
+			continue
 		}
 		qStr := "1"
 		if i < len(qtys) && qtys[i] != "" {
@@ -110,18 +106,22 @@ func (h *Handler) addShoppingListHandler(w http.ResponseWriter, r *http.Request)
 		}
 		q, err := strconv.Atoi(qStr)
 		if err != nil || q <= 0 {
-			// skip invalid qtys (could also return error)
 			continue
 		}
+		sum[code] += q
+	}
 
-		// optional: include item name as note
-		note := name
-		if note == "" {
-			note = "Imported from invoice"
-		}
+	if len(sum) == 0 {
+		http.Error(w, "no valid items", http.StatusBadRequest)
+		return
+	}
 
-		if err := service.AddShoppingListEntry(ctx, h.dbURL, code, q, note); err != nil {
-			// on DB error stop and return
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	added := 0
+	for code, q := range sum {
+		if err := service.AddShoppingListEntry(ctx, h.dbURL, code, q, "Added from invoice"); err != nil {
 			http.Error(w, "failed to add to shopping list: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
