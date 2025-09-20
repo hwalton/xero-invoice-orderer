@@ -121,7 +121,7 @@ func (h *Handler) addShoppingListHandler(w http.ResponseWriter, r *http.Request)
 
 	added := 0
 	for code, q := range sum {
-		if err := service.AddShoppingListEntry(ctx, h.dbURL, code, q, "Added from invoice"); err != nil {
+		if err := service.AddShoppingListEntry(ctx, h.dbURL, code, q, false); err != nil {
 			http.Error(w, "failed to add to shopping list: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
