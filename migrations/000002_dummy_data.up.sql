@@ -47,13 +47,6 @@ INSERT INTO parent_child (parent, child, quantity, created_at, updated_at) VALUE
   ('KIT-001','P-0009',4, (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint)    -- hinges
 ON CONFLICT (parent, child) DO NOTHING;
 
--- Shopping list sample (list_id auto-generated)
-INSERT INTO shopping_list (part_id, quantity, note, created_at, updated_at) VALUES
-  ('KIT-001', 2, 'Buy extra plywood for spare cuts', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('P-0003', 2, 'LED strips for ceiling and under-cupboards', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('P-0005', 1, 'Sink for kitchen build', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint)
-ON CONFLICT DO NOTHING;
-
 -- Example updates: ensure supplier_id references exist for parts added afterwards
 -- (parts table no longer holds supplier_id directly; these updates are harmless if kept)
 UPDATE parts SET -- no-op updates kept for compatibility

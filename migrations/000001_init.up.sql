@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS shopping_list (
     list_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     part_id TEXT NOT NULL,
     quantity INTEGER NOT NULL DEFAULT 1,
-    note TEXT,
+    ordered BOOLEAN NOT NULL DEFAULT FALSE,
     created_at BIGINT DEFAULT (extract(epoch from now()))::bigint,
     updated_at BIGINT DEFAULT (extract(epoch from now()))::bigint,
     FOREIGN KEY (part_id) REFERENCES parts(part_id) ON DELETE RESTRICT
