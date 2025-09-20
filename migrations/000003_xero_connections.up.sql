@@ -1,3 +1,5 @@
+BEGIN;
+
 CREATE TABLE IF NOT EXISTS xero_connections (
   id TEXT PRIMARY KEY,                -- UUID or generated id
   owner_id TEXT NOT NULL UNIQUE,             -- your app's company/user id
@@ -14,3 +16,5 @@ CREATE POLICY allow_authenticated_read_on_xero_connections
   ON xero_connections
   FOR SELECT
   USING (auth.uid() IS NOT NULL);
+
+COMMIT;

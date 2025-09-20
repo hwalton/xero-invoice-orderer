@@ -1,3 +1,5 @@
+BEGIN;
+
 CREATE TABLE IF NOT EXISTS parts (
     part_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -28,7 +30,6 @@ CREATE TABLE IF NOT EXISTS suppliers (
 CREATE TABLE IF NOT EXISTS parts_suppliers (
     part_id TEXT NOT NULL,
     supplier_id TEXT NOT NULL,
-    price NUMERIC(12,2),
     PRIMARY KEY (part_id, supplier_id),
     FOREIGN KEY (part_id) REFERENCES parts(part_id) ON DELETE CASCADE,
     FOREIGN KEY (supplier_id) REFERENCES suppliers(supplier_id) ON DELETE CASCADE
@@ -73,3 +74,5 @@ CREATE POLICY allow_authenticated_read_on_shopping_list
   ON shopping_list
   FOR SELECT
   USING (auth.uid() IS NOT NULL);
+
+COMMIT;

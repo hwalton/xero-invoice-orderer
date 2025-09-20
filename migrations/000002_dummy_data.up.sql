@@ -1,6 +1,8 @@
 -- Dummy data for a campervan conversion business
 -- idempotent inserts so running twice is safe
 
+BEGIN;
+
 -- Suppliers
 INSERT INTO suppliers (supplier_id, supplier_name, contact_email, phone, created_at) VALUES
   ('S-001', 'Van Supplies Ltd', 'sales@vansupplies.example', '+44 20 7123 0001', now()),
@@ -24,18 +26,18 @@ INSERT INTO parts (part_id, name, description, cost_price, sales_price, created_
   ('P-0010', 'Stainless Screws 4x20mm (pack 50)', 'Pack of 50 stainless steel wood screws, 4x20mm', 1.20, 4.50, now(), now())
 ON CONFLICT (part_id) DO NOTHING;
 
--- parts_suppliers (part_id, supplier_id, price)
-INSERT INTO parts_suppliers (part_id, supplier_id, price) VALUES
-  ('P-0001','S-001',60.00),
-  ('P-0002','S-002',6.50),
-  ('P-0003','S-003',9.00),
-  ('P-0004','S-004',28.00),
-  ('P-0005','S-004',25.00),
-  ('P-0006','S-001',80.00),
-  ('P-0007','S-003',450.00),
-  ('P-0008','S-003',140.00),
-  ('P-0009','S-001',2.50),
-  ('P-0010','S-001',1.20)
+-- parts_suppliers (part_id, supplier_id)
+INSERT INTO parts_suppliers (part_id, supplier_id) VALUES
+  ('P-0001','S-001'),
+  ('P-0002','S-002'),
+  ('P-0003','S-003'),
+  ('P-0004','S-004'),
+  ('P-0005','S-004'),
+  ('P-0006','S-001'),
+  ('P-0007','S-003'),
+  ('P-0008','S-003'),
+  ('P-0009','S-001'),
+  ('P-0010','S-001')
 ON CONFLICT (part_id, supplier_id) DO NOTHING;
 
 -- parent_child relationships (parent, child, quantity) — after all parts exist
@@ -57,3 +59,5 @@ ON CONFLICT DO NOTHING;
 UPDATE parts SET -- no-op updates kept for compatibility
   updated_at = updated_at
 WHERE part_id IN ('P-0009','P-0010');
+
+COMMIT;

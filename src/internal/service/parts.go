@@ -12,8 +12,8 @@ import (
 type BOMNode struct {
 	PartID     string    `json:"part_id"`
 	Name       string    `json:"name"`
-	Quantity   float64   `json:"quantity"`   // effective qty (multiplied up the tree)
-	IsAssembly bool      `json:"is_assembly"`// true when node expands into children
+	Quantity   float64   `json:"quantity"`    // effective qty (multiplied up the tree)
+	IsAssembly bool      `json:"is_assembly"` // true when node expands into children
 	Children   []BOMNode `json:"children,omitempty"`
 }
 
@@ -26,9 +26,9 @@ type RootItem struct {
 
 // ResolveInvoiceBOM expands invoice roots into a tree of purchasable leaves.
 // Rules:
-//  - If a part exists and has suppliers => leaf (purchasable), stop.
-//  - If exists but has no suppliers => must have children; otherwise error.
-//  - Recurse up to maxDepth; detect cycles; on any error, return an error message and no nodes.
+//   - If a part exists and has suppliers => leaf (purchasable), stop.
+//   - If exists but has no suppliers => must have children; otherwise error.
+//   - Recurse up to maxDepth; detect cycles; on any error, return an error message and no nodes.
 func ResolveInvoiceBOM(ctx context.Context, dbURL string, roots []RootItem, maxDepth int) ([]BOMNode, string, error) {
 	if dbURL == "" {
 		return nil, "", fmt.Errorf("db url missing")
