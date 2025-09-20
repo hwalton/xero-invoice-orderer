@@ -14,4 +14,8 @@ CREATE POLICY allow_authenticated_read_on_oauth_states
   FOR SELECT
   USING (auth.uid() IS NOT NULL);
 
+CREATE TRIGGER oauth_states_set_updated_at
+  BEFORE UPDATE ON oauth_states
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at_epoch();
+
 COMMIT;

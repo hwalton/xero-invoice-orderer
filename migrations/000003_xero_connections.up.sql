@@ -17,4 +17,8 @@ CREATE POLICY allow_authenticated_read_on_xero_connections
   FOR SELECT
   USING (auth.uid() IS NOT NULL);
 
+CREATE TRIGGER xero_connections_set_updated_at
+  BEFORE UPDATE ON xero_connections
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at_epoch();
+
 COMMIT;

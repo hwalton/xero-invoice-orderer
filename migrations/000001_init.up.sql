@@ -1,5 +1,12 @@
 BEGIN;
 
+CREATE OR REPLACE FUNCTION set_updated_at_epoch() RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at := (extract(epoch from now()))::bigint;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE TABLE IF NOT EXISTS parts (
     part_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -82,3 +89,23 @@ CREATE POLICY allow_authenticated_read_on_shopping_list
   USING (auth.uid() IS NOT NULL);
 
 COMMIT;
+
+CREATE TRIGGER parts_set_updated_at
+  BEFORE UPDATE ON parts
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at_epoch();
+
+CREATE TRIGGER parent_child_set_updated_at
+  BEFORE UPDATE ON parent_child
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at_epoch();
+
+CREATE TRIGGER suppliers_set_updated_at
+  BEFORE UPDATE ON suppliers
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at_epoch();
+
+CREATE TRIGGER parts_suppliers_set_updated_at
+  BEFORE UPDATE ON parts_suppliers
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at_epoch();
+
+CREATE TRIGGER shopping_list_set_updated_at
+  BEFORE UPDATE ON shopping_list
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at_epoch();
