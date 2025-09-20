@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -251,8 +253,11 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 	where := url.QueryEscape(fmt.Sprintf(`InvoiceNumber=="%s"`, invoiceNumber))
 	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Invoices?where=%s", where)
 
+	log.Printf("[DEBUGHW] GetInvoiceItemCodes: invoice=%q url=%s", invoiceNumber, u)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
+		log.Printf("[DEBUGHW] new request error: %v", err)
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
@@ -261,14 +266,17 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		log.Printf("[DEBUGHW] http do error: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
+	// read body for debugging + decoding
+	body, _ := io.ReadAll(resp.Body)
+	log.Printf("[DEBUGHW] response status=%d body=%s", resp.StatusCode, string(body))
+
 	if resp.StatusCode >= 300 {
-		var buf bytes.Buffer
-		_, _ = buf.ReadFrom(resp.Body)
-		return nil, fmt.Errorf("invoices fetch failed: status=%d body=%s", resp.StatusCode, buf.String())
+		return nil, fmt.Errorf("invoices fetch failed: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
 	var respShape struct {
@@ -280,19 +288,25 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 			} `json:"LineItems"`
 		} `json:"Invoices"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&respShape); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&respShape); err != nil {
+		log.Printf("[DEBUGHW] json decode error: %v", err)
 		return nil, err
 	}
+
+	log.Printf("[DEBUGHW] invoices found=%d", len(respShape.Invoices))
 	if len(respShape.Invoices) == 0 {
 		return nil, nil
 	}
+
 	out := make([]string, 0)
-	for _, li := range respShape.Invoices[0].LineItems {
+	for i, li := range respShape.Invoices[0].LineItems {
+		log.Printf("[DEBUGHW] invoice[0] line[%d] ItemCode=%q Description=%q", i, li.ItemCode, li.Description)
 		if li.ItemCode != "" {
 			out = append(out, li.ItemCode)
 		} else if li.Description != "" {
 			out = append(out, li.Description)
 		}
 	}
+	log.Printf("[DEBUGHW] extracted %d items for invoice %q", len(out), invoiceNumber)
 	return out, nil
 }

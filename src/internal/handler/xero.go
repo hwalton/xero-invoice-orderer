@@ -271,6 +271,17 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// marshal items and set short-lived cookies, then redirect to home
+	b, err := json.Marshal(itemCodes)
+	if err != nil {
+		http.Error(w, "failed to marshal invoice items", http.StatusInternalServerError)
+		return
+	}
+	utils.SetCookie(w, r, "xero_invoice_items", string(b), time.Now().Add(5*time.Minute))
+	utils.SetCookie(w, r, "xero_invoice_number", invoiceID, time.Now().Add(5*time.Minute))
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+	return
 	// Render home template with invoice items included (reusing homeHandler rendering logic).
 	// Load connections for template as in homeHandler
 	var connsForUI []service.XeroConnection

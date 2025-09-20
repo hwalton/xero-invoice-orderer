@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"html/template"
 	"io"
 	"net/http"
@@ -78,6 +79,18 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 		utils.ClearCookie(w, r, "xero_sync_msg")
 	}
 
+	// read invoice items cookie (set by /xero/invoice) and clear it
+	var invoiceItems []string
+	if c, err := r.Cookie("xero_invoice_items"); err == nil && c.Value != "" {
+		_ = json.Unmarshal([]byte(c.Value), &invoiceItems) // ignore unmarshal error for UI
+		utils.ClearCookie(w, r, "xero_invoice_items")
+	}
+	var invoiceNumber string
+	if c, err := r.Cookie("xero_invoice_number"); err == nil && c.Value != "" {
+		invoiceNumber = c.Value
+		utils.ClearCookie(w, r, "xero_invoice_number")
+	}
+
 	data := map[string]interface{}{
 		"Title":             "Home",
 		"UserID":            userID,
@@ -85,6 +98,8 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 		"XeroTenantID":      tenantID,
 		"XeroCreatedAt":     createdAt,
 		"XeroSyncMessage":   xeroSyncMsg,
+		"InvoiceItems":      invoiceItems,
+		"InvoiceNumber":     invoiceNumber,
 	}
 
 	if h.templates != nil {
