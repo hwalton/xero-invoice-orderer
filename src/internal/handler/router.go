@@ -48,6 +48,7 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates 
 		r.Get("/xero/connections", h.xeroConnectionsHandler)
 
 		r.Post("/xero/sync", h.xeroSyncHandler)
+		r.Post("/xero/invoice", h.getInvoiceHandler) // new handler for invoice -> returns items to UI
 	})
 
 	return r

@@ -241,3 +241,58 @@ func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, 
 	}
 	return nil
 }
+
+// GetInvoiceItemCodes looks up an invoice by InvoiceNumber and returns the ItemCode(s)
+// for the invoice's line items (falls back to the line Description when ItemCode is empty).
+func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessToken, tenantID, invoiceNumber string) ([]string, error) {
+	if invoiceNumber == "" {
+		return nil, fmt.Errorf("invoice number empty")
+	}
+	where := url.QueryEscape(fmt.Sprintf(`InvoiceNumber=="%s"`, invoiceNumber))
+	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Invoices?where=%s", where)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Xero-tenant-id", tenantID)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(resp.Body)
+		return nil, fmt.Errorf("invoices fetch failed: status=%d body=%s", resp.StatusCode, buf.String())
+	}
+
+	var respShape struct {
+		Invoices []struct {
+			InvoiceNumber string `json:"InvoiceNumber"`
+			LineItems     []struct {
+				ItemCode    string `json:"ItemCode"`
+				Description string `json:"Description"`
+			} `json:"LineItems"`
+		} `json:"Invoices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&respShape); err != nil {
+		return nil, err
+	}
+	if len(respShape.Invoices) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0)
+	for _, li := range respShape.Invoices[0].LineItems {
+		if li.ItemCode != "" {
+			out = append(out, li.ItemCode)
+		} else if li.Description != "" {
+			out = append(out, li.Description)
+		}
+	}
+	return out, nil
+}
