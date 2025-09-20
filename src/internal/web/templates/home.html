@@ -68,7 +68,8 @@
                 {{ range .InvoiceItems }}
                   <li>
                     <span class="font-mono text-sm">{{ .ItemCode }}</span>
-                    {{ if .Description }} - <span class="text-gray-700">{{ .Description }}</span>{{ end }}
+                    {{ if .Name }} - <span class="text-gray-700">{{ .Name }}</span>{{ end }}
+                    <span class="text-sm text-gray-600"> (Qty: {{ .Quantity }})</span>
                   </li>
                 {{ end }}
               </ul>

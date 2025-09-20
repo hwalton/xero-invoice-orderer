@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -244,14 +243,15 @@ func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, 
 	return nil
 }
 
-// InvoiceLine represents a single invoice line item (code + description).
+// InvoiceLine represents a single invoice line item (code + name + quantity).
 type InvoiceLine struct {
-	ItemCode    string `json:"item_code"`
-	Description string `json:"description"`
+	ItemCode string  `json:"item_code"`
+	Name     string  `json:"name"`
+	Quantity float64 `json:"quantity"`
 }
 
 // GetInvoiceItemCodes looks up an invoice by InvoiceNumber and returns the ItemCode(s)
-// and Descriptions for the invoice's line items.
+// and Names/Quantities for the invoice's line items.
 func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessToken, tenantID, invoiceNumber string) ([]InvoiceLine, error) {
 	if invoiceNumber == "" {
 		return nil, fmt.Errorf("invoice number empty")
@@ -260,11 +260,9 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 	// 1) find InvoiceID by InvoiceNumber (list endpoint)
 	where := url.QueryEscape(fmt.Sprintf(`InvoiceNumber=="%s"`, invoiceNumber))
 	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Invoices?where=%s", where)
-	log.Printf("[DEBUGHW] GetInvoiceItemCodes: lookup invoice=%q tenant=%q url=%s", invoiceNumber, tenantID, u)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		log.Printf("[DEBUGHW] new request error: %v", err)
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
@@ -273,13 +271,11 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		log.Printf("[DEBUGHW] http do error: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	log.Printf("[DEBUGHW] lookup response status=%d body=%s", resp.StatusCode, string(body))
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("invoices lookup failed: status=%d body=%s", resp.StatusCode, string(body))
 	}
@@ -290,27 +286,22 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 		} `json:"Invoices"`
 	}
 	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&listShape); err != nil {
-		log.Printf("[DEBUGHW] json decode lookup error: %v", err)
 		return nil, err
 	}
 	if len(listShape.Invoices) == 0 {
-		log.Printf("[DEBUGHW] no invoice found for number=%q", invoiceNumber)
 		return nil, nil
 	}
 
 	invoiceID := listShape.Invoices[0].InvoiceID
 	if invoiceID == "" {
-		log.Printf("[DEBUGHW] invoiceID empty for number=%q", invoiceNumber)
 		return nil, nil
 	}
 
-	// 2) always fetch the invoice detail endpoint to get full LineItems
+	// 2) fetch the invoice detail endpoint to get full LineItems
 	detailURL := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Invoices/%s", invoiceID)
-	log.Printf("[DEBUGHW] fetching invoice detail url=%s", detailURL)
 
 	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, detailURL, nil)
 	if err != nil {
-		log.Printf("[DEBUGHW] new detail request error: %v", err)
 		return nil, err
 	}
 	req2.Header.Set("Authorization", "Bearer "+accessToken)
@@ -319,12 +310,10 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 
 	resp2, err := httpClient.Do(req2)
 	if err != nil {
-		log.Printf("[DEBUGHW] detail http do error: %v", err)
 		return nil, err
 	}
 	defer resp2.Body.Close()
 	body2, _ := io.ReadAll(resp2.Body)
-	log.Printf("[DEBUGHW] detail response status=%d body=%s", resp2.StatusCode, string(body2))
 	if resp2.StatusCode >= 300 {
 		return nil, fmt.Errorf("invoice detail fetch failed: status=%d body=%s", resp2.StatusCode, string(body2))
 	}
@@ -332,13 +321,16 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 	var detailShape struct {
 		Invoices []struct {
 			LineItems []struct {
-				ItemCode    string `json:"ItemCode"`
-				Description string `json:"Description"`
+				ItemCode    string  `json:"ItemCode"`
+				Description string  `json:"Description"`
+				Quantity    float64 `json:"Quantity"`
+				Item        struct {
+					Name string `json:"Name"`
+				} `json:"Item"`
 			} `json:"LineItems"`
 		} `json:"Invoices"`
 	}
 	if err := json.NewDecoder(bytes.NewReader(body2)).Decode(&detailShape); err != nil {
-		log.Printf("[DEBUGHW] json decode detail error: %v", err)
 		return nil, err
 	}
 	if len(detailShape.Invoices) == 0 {
@@ -346,14 +338,17 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 	}
 
 	out := make([]InvoiceLine, 0, len(detailShape.Invoices[0].LineItems))
-	for i, li := range detailShape.Invoices[0].LineItems {
-		log.Printf("[DEBUGHW] detail invoice line[%d] ItemCode=%q Description=%q", i, li.ItemCode, li.Description)
+	for _, li := range detailShape.Invoices[0].LineItems {
+		name := li.Item.Name
+		if name == "" {
+			name = li.Description
+		}
 		il := InvoiceLine{
-			ItemCode:    li.ItemCode,
-			Description: li.Description,
+			ItemCode: li.ItemCode,
+			Name:     name,
+			Quantity: li.Quantity,
 		}
 		out = append(out, il)
 	}
-	log.Printf("[DEBUGHW] extracted %d items from detail for invoice %q", len(out), invoiceNumber)
 	return out, nil
 }
