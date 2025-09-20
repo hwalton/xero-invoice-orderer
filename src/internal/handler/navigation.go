@@ -13,6 +13,7 @@ import (
 	"github.com/hwalton/freeride-campervans/internal/service"
 	"github.com/hwalton/freeride-campervans/internal/utils"
 	"github.com/hwalton/freeride-campervans/internal/web"
+	"github.com/hwalton/freeride-campervans/pkg/xero"
 )
 
 // login serves the login page via templates
@@ -81,7 +82,7 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// read invoice items cookie (base64-encoded), decode and clear it
-	var invoiceItems []string
+	var invoiceItems []xero.InvoiceLine
 	if c, err := r.Cookie("xero_invoice_items"); err == nil && c.Value != "" {
 		if decoded, derr := base64.StdEncoding.DecodeString(c.Value); derr == nil {
 			_ = json.Unmarshal(decoded, &invoiceItems) // ignore unmarshal error for UI
@@ -101,7 +102,7 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 		"XeroTenantID":      tenantID,
 		"XeroCreatedAt":     createdAt,
 		"XeroSyncMessage":   xeroSyncMsg,
-		"InvoiceItems":      invoiceItems,
+		"InvoiceItems":      invoiceItems, // now []xero.InvoiceLine
 		"InvoiceNumber":     invoiceNumber,
 	}
 

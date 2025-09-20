@@ -266,14 +266,15 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 		found.ExpiresAt = time.Now().Add(time.Duration(secs) * time.Second)
 	}
 
-	itemCodes, err := xero.GetInvoiceItemCodes(ctx, h.client, found.AccessToken, found.TenantID, invoiceID)
+	// fetch invoice lines (now returns []xero.InvoiceLine)
+	itemLines, err := xero.GetInvoiceItemCodes(ctx, h.client, found.AccessToken, found.TenantID, invoiceID)
 	if err != nil {
 		http.Error(w, "failed to fetch invoice: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// marshal items and set short-lived cookie (base64-encoded) then redirect to home
-	b, err := json.Marshal(itemCodes)
+	b, err := json.Marshal(itemLines)
 	if err != nil {
 		http.Error(w, "failed to marshal invoice items", http.StatusInternalServerError)
 		return
@@ -314,7 +315,7 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 		"XeroTenantID":      tenantID,
 		"XeroCreatedAt":     createdAt,
 		"XeroSyncMessage":   xeroSyncMsg,
-		"InvoiceItems":      itemCodes,
+		"InvoiceItems":      itemLines,
 		"InvoiceNumber":     invoiceID,
 	}
 

@@ -244,9 +244,15 @@ func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, 
 	return nil
 }
 
+// InvoiceLine represents a single invoice line item (code + description).
+type InvoiceLine struct {
+	ItemCode    string `json:"item_code"`
+	Description string `json:"description"`
+}
+
 // GetInvoiceItemCodes looks up an invoice by InvoiceNumber and returns the ItemCode(s)
-// for the invoice's line items (falls back to the line Description when ItemCode is empty).
-func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessToken, tenantID, invoiceNumber string) ([]string, error) {
+// and Descriptions for the invoice's line items.
+func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessToken, tenantID, invoiceNumber string) ([]InvoiceLine, error) {
 	if invoiceNumber == "" {
 		return nil, fmt.Errorf("invoice number empty")
 	}
@@ -339,14 +345,14 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 		return nil, nil
 	}
 
-	out := make([]string, 0, len(detailShape.Invoices[0].LineItems))
+	out := make([]InvoiceLine, 0, len(detailShape.Invoices[0].LineItems))
 	for i, li := range detailShape.Invoices[0].LineItems {
 		log.Printf("[DEBUGHW] detail invoice line[%d] ItemCode=%q Description=%q", i, li.ItemCode, li.Description)
-		if li.ItemCode != "" {
-			out = append(out, li.ItemCode)
-		} else if li.Description != "" {
-			out = append(out, li.Description)
+		il := InvoiceLine{
+			ItemCode:    li.ItemCode,
+			Description: li.Description,
 		}
+		out = append(out, il)
 	}
 	log.Printf("[DEBUGHW] extracted %d items from detail for invoice %q", len(out), invoiceNumber)
 	return out, nil
