@@ -50,10 +50,7 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 	// if no userID in context, try to extract from cookie/header using middleware helper
 	if userID == "" && h.auth != nil {
 		if userID, ok = mid.GetUserIDFromRequest(r, h.auth); ok && userID != "" {
-			// store into request context so downstream/template sees it
 			r = r.WithContext(context.WithValue(r.Context(), ctxUserID, userID))
-			// set user_id cookie for client (30 days)
-			utils.SetCookie(w, r, "user_id", userID, time.Now().Add(30*24*time.Hour))
 		}
 	}
 

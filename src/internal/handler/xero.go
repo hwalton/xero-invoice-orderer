@@ -141,17 +141,12 @@ func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request)
 
 // xeroSync triggers a sync for tenant (tenant path param).
 func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
-	// prefer owner id from context/cookie/auth helper (same as before)
+	// prefer owner id from context; if missing, derive via auth helper and store in context
 	ownerID, _ := r.Context().Value(ctxUserID).(string)
-	if ownerID == "" {
-		if c, err := r.Cookie("user_id"); err == nil && c.Value != "" {
-			ownerID = c.Value
+	if ownerID == "" && h.auth != nil {
+		if got, ok := mid.GetUserIDFromRequest(r, h.auth); ok && got != "" {
+			ownerID = got
 			r = r.WithContext(context.WithValue(r.Context(), ctxUserID, ownerID))
-		} else if h.auth != nil {
-			if got, ok := mid.GetUserIDFromRequest(r, h.auth); ok && got != "" {
-				ownerID = got
-				r = r.WithContext(context.WithValue(r.Context(), ctxUserID, ownerID))
-			}
 		}
 	}
 

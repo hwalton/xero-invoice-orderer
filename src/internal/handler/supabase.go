@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"time"
@@ -56,7 +57,9 @@ func (h *Handler) supabaseConnectHandler(w http.ResponseWriter, r *http.Request)
 	exp := time.Now().Add(time.Duration(3600) * time.Second) // align with access token expiry
 	utils.SetCookie(w, r, "access_token", access, exp)
 	utils.SetCookie(w, r, "refresh_token", refresh, time.Now().Add(30*24*time.Hour))
-	utils.SetCookie(w, r, "user_id", userID, time.Now().Add(30*24*time.Hour))
+
+	// keep user id in request context instead of a cookie
+	r = r.WithContext(context.WithValue(r.Context(), ctxUserID, userID))
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
