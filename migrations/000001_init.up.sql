@@ -29,8 +29,7 @@ CREATE TABLE IF NOT EXISTS parent_child (
 );
 
 CREATE TABLE IF NOT EXISTS suppliers (
-    supplier_id TEXT PRIMARY KEY,
-    supplier_name TEXT,
+    supplier_name TEXT PRIMARY KEY,
     contact_email TEXT,
     phone TEXT,
     created_at BIGINT DEFAULT (extract(epoch from now()))::bigint,
@@ -39,10 +38,10 @@ CREATE TABLE IF NOT EXISTS suppliers (
 
 CREATE TABLE IF NOT EXISTS parts_suppliers (
     part_id TEXT NOT NULL,
-    supplier_id TEXT NOT NULL,
-    PRIMARY KEY (part_id, supplier_id),
+    supplier_name TEXT NOT NULL,
+    PRIMARY KEY (part_id, supplier_name),
     FOREIGN KEY (part_id) REFERENCES parts(part_id) ON DELETE CASCADE,
-    FOREIGN KEY (supplier_id) REFERENCES suppliers(supplier_id) ON DELETE CASCADE,
+    FOREIGN KEY (supplier_name) REFERENCES suppliers(supplier_name) ON DELETE CASCADE,
     created_at BIGINT DEFAULT (extract(epoch from now()))::bigint,
     updated_at BIGINT DEFAULT (extract(epoch from now()))::bigint
 );

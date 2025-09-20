@@ -355,13 +355,14 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 
 // POItem is a minimal purchase order line (ItemCode + Quantity).
 type POItem struct {
-	ItemCode string `json:"ItemCode"`
-	Quantity int    `json:"Quantity"`
+	ItemCode    string `json:"ItemCode"`
+	Quantity    int    `json:"Quantity"`
+	Description string `json:"Description,omitempty"`
 }
 
-// CreatePurchaseOrder posts a minimal PurchaseOrder payload to Xero for the given supplier ContactID.
-// Assumes supplierID maps to Xero ContactID. Returns the created PurchaseOrderID on success.
-func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessToken, tenantID, supplierContactID string, items []POItem) (string, error) {
+// CreatePurchaseOrder posts a minimal PurchaseOrder payload to Xero for the given supplier.
+// supplierName is used as Contact.Name and ContactNumber (so Xero can identify the contact).
+func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessToken, tenantID, supplierName string, items []POItem) (string, error) {
 	if len(items) == 0 {
 		return "", fmt.Errorf("no items")
 	}
@@ -369,7 +370,8 @@ func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessTok
 		"PurchaseOrders": []map[string]interface{}{
 			{
 				"Contact": map[string]string{
-					"ContactID": supplierContactID,
+					"Name":          supplierName,
+					"ContactNumber": supplierName, // provide an identifier Xero accepts
 				},
 				"LineItems": items,
 				"Status":    "AUTHORISED",
@@ -396,13 +398,11 @@ func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessTok
 	}
 	defer resp.Body.Close()
 
-	// simple status check and return empty id for now; parsing response can be added as needed
 	if resp.StatusCode >= 300 {
 		var buf bytes.Buffer
 		_, _ = buf.ReadFrom(resp.Body)
 		return "", fmt.Errorf("create purchase order failed: status=%d body=%s", resp.StatusCode, buf.String())
 	}
-	// parse created PurchaseOrder ID if present
 	var res struct {
 		PurchaseOrders []struct {
 			PurchaseOrderID string `json:"PurchaseOrderID"`
@@ -416,32 +416,39 @@ func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessTok
 
 // Supplier represents minimal supplier data from local DB to be synced as Xero Contact.
 type Supplier struct {
-	SupplierID   string `json:"supplier_id"`
+	// supplier_name is the primary key in DB and will be used as Contact.Name in Xero
 	SupplierName string `json:"supplier_name"`
 	ContactEmail string `json:"contact_email"`
 	Phone        string `json:"phone"`
 }
 
 // SyncSuppliersToXero posts a minimal Contacts payload to Xero.
-// Uses supplier.SupplierID as Contact.ContactID so local supplier_id is preserved in Xero.
+// We do NOT set ContactID (Xero will assign). Contact.Name will be supplier_name.
 func SyncSuppliersToXero(ctx context.Context, httpClient *http.Client, accessToken, tenantID string, suppliers []Supplier) error {
 	if len(suppliers) == 0 {
 		return nil
 	}
 
+	type phonePayload struct {
+		Type  string `json:"Type,omitempty"`
+		Phone string `json:"Phone,omitempty"`
+	}
 	type contactPayload struct {
-		ContactID    string `json:"ContactID,omitempty"`
-		Name         string `json:"Name,omitempty"`
-		EmailAddress string `json:"EmailAddress,omitempty"`
+		Name         string         `json:"Name,omitempty"`
+		EmailAddress string         `json:"EmailAddress,omitempty"`
+		Phones       []phonePayload `json:"Phones,omitempty"`
 	}
 
 	contacts := make([]contactPayload, 0, len(suppliers))
 	for _, s := range suppliers {
-		contacts = append(contacts, contactPayload{
-			ContactID:    s.SupplierID,
+		cp := contactPayload{
 			Name:         s.SupplierName,
 			EmailAddress: s.ContactEmail,
-		})
+		}
+		if s.Phone != "" {
+			cp.Phones = []phonePayload{{Type: "DEFAULT", Phone: s.Phone}}
+		}
+		contacts = append(contacts, cp)
 	}
 
 	payload := map[string]interface{}{"Contacts": contacts}

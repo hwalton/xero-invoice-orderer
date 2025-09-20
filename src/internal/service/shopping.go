@@ -50,7 +50,7 @@ func GetUnorderedShoppingRows(ctx context.Context, dbURL string) ([]ShoppingRow,
 }
 
 // GroupShoppingItemsBySupplier assigns each shopping row to a supplier and aggregates duplicates.
-// It selects the first supplier found for a part. If a part has no supplier -> error.
+// It selects the first supplier_name found for a part. If a part has no supplier -> error.
 func GroupShoppingItemsBySupplier(ctx context.Context, dbURL string, rows []ShoppingRow) (map[string][]SupplierItem, error) {
 	if dbURL == "" {
 		return nil, fmt.Errorf("db url missing")
@@ -64,24 +64,24 @@ func GroupShoppingItemsBySupplier(ctx context.Context, dbURL string, rows []Shop
 	}
 	defer pool.Close()
 
-	// map supplier -> (part -> SupplierItem)
+	// map supplier_name -> (part -> SupplierItem)
 	groupMap := map[string]map[string]*SupplierItem{}
 
 	for _, r := range rows {
-		var supplierID string
-		err := pool.QueryRow(ctx, `SELECT supplier_id FROM parts_suppliers WHERE part_id = $1 LIMIT 1`, r.PartID).Scan(&supplierID)
+		var supplierName string
+		err := pool.QueryRow(ctx, `SELECT supplier_name FROM parts_suppliers WHERE part_id = $1 LIMIT 1`, r.PartID).Scan(&supplierName)
 		if err != nil {
 			// no supplier or query error
 			return nil, fmt.Errorf("no supplier found for part %s", r.PartID)
 		}
-		if _, ok := groupMap[supplierID]; !ok {
-			groupMap[supplierID] = map[string]*SupplierItem{}
+		if _, ok := groupMap[supplierName]; !ok {
+			groupMap[supplierName] = map[string]*SupplierItem{}
 		}
-		if existing, ok := groupMap[supplierID][r.PartID]; ok {
+		if existing, ok := groupMap[supplierName][r.PartID]; ok {
 			existing.Quantity += r.Quantity
 			existing.ListIDs = append(existing.ListIDs, r.ListID)
 		} else {
-			groupMap[supplierID][r.PartID] = &SupplierItem{
+			groupMap[supplierName][r.PartID] = &SupplierItem{
 				PartID:   r.PartID,
 				Quantity: r.Quantity,
 				ListIDs:  []int{r.ListID},

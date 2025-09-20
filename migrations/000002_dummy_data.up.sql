@@ -4,12 +4,12 @@
 BEGIN;
 
 -- Suppliers
-INSERT INTO suppliers (supplier_id, supplier_name, contact_email, phone, created_at, updated_at) VALUES
-  ('S-001', 'Van Supplies Ltd', 'sales@vansupplies.example', '+44 20 7123 0001', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('S-002', 'Eco Materials Co', 'info@ecomaterials.example', '+44 20 7123 0002', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('S-003', 'ElectroParts', 'sales@electroparts.example', '+44 20 7123 0003', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('S-004', 'PlumbRight', 'contact@plumbright.example', '+44 20 7123 0004', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint)
-ON CONFLICT (supplier_id) DO NOTHING;
+INSERT INTO suppliers (supplier_name, contact_email, phone, created_at, updated_at) VALUES
+  ('Van Supplies Ltd', 'sales@vansupplies.example', '+44 20 7123 0001', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
+  ('Eco Materials Co', 'info@ecomaterials.example', '+44 20 7123 0002', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
+  ('ElectroParts', 'sales@electroparts.example', '+44 20 7123 0003', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
+  ('PlumbRight', 'contact@plumbright.example', '+44 20 7123 0004', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint)
+ON CONFLICT (supplier_name) DO NOTHING;
 
 -- Core parts (only columns present in current parts table: part_id, name, description, cost_price, sales_price, created_at, updated_at)
 INSERT INTO parts (part_id, name, description, cost_price, sales_price, created_at, updated_at) VALUES
@@ -26,19 +26,19 @@ INSERT INTO parts (part_id, name, description, cost_price, sales_price, created_
   ('P-0010', 'Stainless Screws 4x20mm (pack 50)', 'Pack of 50 stainless steel wood screws, 4x20mm', 1.20, 4.50, (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint)
 ON CONFLICT (part_id) DO NOTHING;
 
--- parts_suppliers (part_id, supplier_id)
-INSERT INTO parts_suppliers (part_id, supplier_id, created_at, updated_at) VALUES
-  ('P-0001','S-001', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('P-0002','S-002', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('P-0003','S-003', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('P-0004','S-004', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('P-0005','S-004', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('P-0006','S-001', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('P-0007','S-003', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('P-0008','S-003', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('P-0009','S-001', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
-  ('P-0010','S-001', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint)
-ON CONFLICT (part_id, supplier_id) DO NOTHING;
+-- parts_suppliers (part_id, supplier_name)
+INSERT INTO parts_suppliers (part_id, supplier_name, created_at, updated_at) VALUES
+  ('P-0001','Van Supplies Ltd', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
+  ('P-0002','Eco Materials Co', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
+  ('P-0003','ElectroParts', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
+  ('P-0004','PlumbRight', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
+  ('P-0005','PlumbRight', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
+  ('P-0006','Van Supplies Ltd', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
+  ('P-0007','ElectroParts', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
+  ('P-0008','ElectroParts', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
+  ('P-0009','Van Supplies Ltd', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint),
+  ('P-0010','Van Supplies Ltd', (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint)
+ON CONFLICT (part_id, supplier_name) DO NOTHING;
 
 -- parent_child relationships (parent, child, quantity) — after all parts exist
 INSERT INTO parent_child (parent, child, quantity, created_at, updated_at) VALUES
@@ -47,7 +47,7 @@ INSERT INTO parent_child (parent, child, quantity, created_at, updated_at) VALUE
   ('KIT-001','P-0009',4, (extract(epoch from now()))::bigint, (extract(epoch from now()))::bigint)    -- hinges
 ON CONFLICT (parent, child) DO NOTHING;
 
--- Example updates: ensure supplier_id references exist for parts added afterwards
+-- Example updates: ensure supplier_name references exist for parts added afterwards
 -- (parts table no longer holds supplier_id directly; these updates are harmless if kept)
 UPDATE parts SET -- no-op updates kept for compatibility
   updated_at = updated_at

@@ -75,8 +75,7 @@ func LoadSuppliers(ctx context.Context, dbURL string) ([]xero.Supplier, error) {
 	defer pool.Close()
 
 	rows, err := pool.Query(ctx, `
-SELECT supplier_id,
-       COALESCE(supplier_name, '') AS supplier_name,
+SELECT supplier_name,
        COALESCE(contact_email, '') AS contact_email,
        COALESCE(phone, '') AS phone
 FROM suppliers
@@ -89,7 +88,7 @@ FROM suppliers
 	var out []xero.Supplier
 	for rows.Next() {
 		var s xero.Supplier
-		if err := rows.Scan(&s.SupplierID, &s.SupplierName, &s.ContactEmail, &s.Phone); err != nil {
+		if err := rows.Scan(&s.SupplierName, &s.ContactEmail, &s.Phone); err != nil {
 			return nil, fmt.Errorf("scan supplier: %w", err)
 		}
 		out = append(out, s)

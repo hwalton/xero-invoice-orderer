@@ -457,20 +457,21 @@ func (h *Handler) createPurchaseOrdersHandler(w http.ResponseWriter, r *http.Req
 	// 3) create POs per supplier and collect list IDs to mark ordered
 	var allListIDs []int
 	created := 0
-	for supplierID, items := range grouped {
+	for supplierName, items := range grouped {
 		// transform to pkg/xero PO items
 		var poItems []xero.POItem
 		for _, it := range items {
 			poItems = append(poItems, xero.POItem{
-				ItemCode: it.PartID,
-				Quantity: it.Quantity,
+				ItemCode:    it.PartID,
+				Quantity:    it.Quantity,
+				Description: it.PartID, // minimal description required by Xero for AUTHORISED POs
 			})
 			allListIDs = append(allListIDs, it.ListIDs...)
 		}
 
-		_, err := xero.CreatePurchaseOrder(ctx, h.client, found.AccessToken, found.TenantID, supplierID, poItems)
+		_, err := xero.CreatePurchaseOrder(ctx, h.client, found.AccessToken, found.TenantID, supplierName, poItems)
 		if err != nil {
-			utils.SetCookie(w, r, "xero_sync_msg", "Failed to create PO for supplier "+supplierID+": "+err.Error(), time.Now().Add(5*time.Minute))
+			utils.SetCookie(w, r, "xero_sync_msg", "Failed to create PO for supplier "+supplierName+": "+err.Error(), time.Now().Add(5*time.Minute))
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
