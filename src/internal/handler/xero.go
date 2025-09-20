@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -271,13 +272,14 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// marshal items and set short-lived cookies, then redirect to home
+	// marshal items and set short-lived cookie (base64-encoded) then redirect to home
 	b, err := json.Marshal(itemCodes)
 	if err != nil {
 		http.Error(w, "failed to marshal invoice items", http.StatusInternalServerError)
 		return
 	}
-	utils.SetCookie(w, r, "xero_invoice_items", string(b), time.Now().Add(5*time.Minute))
+	enc := base64.StdEncoding.EncodeToString(b)
+	utils.SetCookie(w, r, "xero_invoice_items", enc, time.Now().Add(5*time.Minute))
 	utils.SetCookie(w, r, "xero_invoice_number", invoiceID, time.Now().Add(5*time.Minute))
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"html/template"
 	"io"
@@ -79,10 +80,12 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 		utils.ClearCookie(w, r, "xero_sync_msg")
 	}
 
-	// read invoice items cookie (set by /xero/invoice) and clear it
+	// read invoice items cookie (base64-encoded), decode and clear it
 	var invoiceItems []string
 	if c, err := r.Cookie("xero_invoice_items"); err == nil && c.Value != "" {
-		_ = json.Unmarshal([]byte(c.Value), &invoiceItems) // ignore unmarshal error for UI
+		if decoded, derr := base64.StdEncoding.DecodeString(c.Value); derr == nil {
+			_ = json.Unmarshal(decoded, &invoiceItems) // ignore unmarshal error for UI
+		}
 		utils.ClearCookie(w, r, "xero_invoice_items")
 	}
 	var invoiceNumber string

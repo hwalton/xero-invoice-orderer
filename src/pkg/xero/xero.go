@@ -250,10 +250,11 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 	if invoiceNumber == "" {
 		return nil, fmt.Errorf("invoice number empty")
 	}
+
+	// 1) find InvoiceID by InvoiceNumber (list endpoint)
 	where := url.QueryEscape(fmt.Sprintf(`InvoiceNumber=="%s"`, invoiceNumber))
 	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Invoices?where=%s", where)
-
-	log.Printf("[DEBUGHW] GetInvoiceItemCodes: invoice=%q url=%s", invoiceNumber, u)
+	log.Printf("[DEBUGHW] GetInvoiceItemCodes: lookup invoice=%q tenant=%q url=%s", invoiceNumber, tenantID, u)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -271,42 +272,82 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 	}
 	defer resp.Body.Close()
 
-	// read body for debugging + decoding
 	body, _ := io.ReadAll(resp.Body)
-	log.Printf("[DEBUGHW] response status=%d body=%s", resp.StatusCode, string(body))
-
+	log.Printf("[DEBUGHW] lookup response status=%d body=%s", resp.StatusCode, string(body))
 	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("invoices fetch failed: status=%d body=%s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("invoices lookup failed: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
-	var respShape struct {
+	var listShape struct {
 		Invoices []struct {
-			InvoiceNumber string `json:"InvoiceNumber"`
-			LineItems     []struct {
+			InvoiceID string `json:"InvoiceID"`
+		} `json:"Invoices"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&listShape); err != nil {
+		log.Printf("[DEBUGHW] json decode lookup error: %v", err)
+		return nil, err
+	}
+	if len(listShape.Invoices) == 0 {
+		log.Printf("[DEBUGHW] no invoice found for number=%q", invoiceNumber)
+		return nil, nil
+	}
+
+	invoiceID := listShape.Invoices[0].InvoiceID
+	if invoiceID == "" {
+		log.Printf("[DEBUGHW] invoiceID empty for number=%q", invoiceNumber)
+		return nil, nil
+	}
+
+	// 2) always fetch the invoice detail endpoint to get full LineItems
+	detailURL := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Invoices/%s", invoiceID)
+	log.Printf("[DEBUGHW] fetching invoice detail url=%s", detailURL)
+
+	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, detailURL, nil)
+	if err != nil {
+		log.Printf("[DEBUGHW] new detail request error: %v", err)
+		return nil, err
+	}
+	req2.Header.Set("Authorization", "Bearer "+accessToken)
+	req2.Header.Set("Xero-tenant-id", tenantID)
+	req2.Header.Set("Accept", "application/json")
+
+	resp2, err := httpClient.Do(req2)
+	if err != nil {
+		log.Printf("[DEBUGHW] detail http do error: %v", err)
+		return nil, err
+	}
+	defer resp2.Body.Close()
+	body2, _ := io.ReadAll(resp2.Body)
+	log.Printf("[DEBUGHW] detail response status=%d body=%s", resp2.StatusCode, string(body2))
+	if resp2.StatusCode >= 300 {
+		return nil, fmt.Errorf("invoice detail fetch failed: status=%d body=%s", resp2.StatusCode, string(body2))
+	}
+
+	var detailShape struct {
+		Invoices []struct {
+			LineItems []struct {
 				ItemCode    string `json:"ItemCode"`
 				Description string `json:"Description"`
 			} `json:"LineItems"`
 		} `json:"Invoices"`
 	}
-	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&respShape); err != nil {
-		log.Printf("[DEBUGHW] json decode error: %v", err)
+	if err := json.NewDecoder(bytes.NewReader(body2)).Decode(&detailShape); err != nil {
+		log.Printf("[DEBUGHW] json decode detail error: %v", err)
 		return nil, err
 	}
-
-	log.Printf("[DEBUGHW] invoices found=%d", len(respShape.Invoices))
-	if len(respShape.Invoices) == 0 {
+	if len(detailShape.Invoices) == 0 {
 		return nil, nil
 	}
 
-	out := make([]string, 0)
-	for i, li := range respShape.Invoices[0].LineItems {
-		log.Printf("[DEBUGHW] invoice[0] line[%d] ItemCode=%q Description=%q", i, li.ItemCode, li.Description)
+	out := make([]string, 0, len(detailShape.Invoices[0].LineItems))
+	for i, li := range detailShape.Invoices[0].LineItems {
+		log.Printf("[DEBUGHW] detail invoice line[%d] ItemCode=%q Description=%q", i, li.ItemCode, li.Description)
 		if li.ItemCode != "" {
 			out = append(out, li.ItemCode)
 		} else if li.Description != "" {
 			out = append(out, li.Description)
 		}
 	}
-	log.Printf("[DEBUGHW] extracted %d items for invoice %q", len(out), invoiceNumber)
+	log.Printf("[DEBUGHW] extracted %d items from detail for invoice %q", len(out), invoiceNumber)
 	return out, nil
 }
