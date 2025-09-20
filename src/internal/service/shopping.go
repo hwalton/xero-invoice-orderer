@@ -68,20 +68,19 @@ func GroupShoppingItemsBySupplier(ctx context.Context, dbURL string, rows []Shop
 	groupMap := map[string]map[string]*SupplierItem{}
 
 	for _, r := range rows {
-		var supplierName string
-		err := pool.QueryRow(ctx, `SELECT supplier_name FROM parts_suppliers WHERE part_id = $1 LIMIT 1`, r.PartID).Scan(&supplierName)
+		var supplierID string
+		err := pool.QueryRow(ctx, `SELECT supplier_id FROM parts_suppliers WHERE part_id = $1 LIMIT 1`, r.PartID).Scan(&supplierID)
 		if err != nil {
-			// no supplier or query error
 			return nil, fmt.Errorf("no supplier found for part %s", r.PartID)
 		}
-		if _, ok := groupMap[supplierName]; !ok {
-			groupMap[supplierName] = map[string]*SupplierItem{}
+		if _, ok := groupMap[supplierID]; !ok {
+			groupMap[supplierID] = map[string]*SupplierItem{}
 		}
-		if existing, ok := groupMap[supplierName][r.PartID]; ok {
+		if existing, ok := groupMap[supplierID][r.PartID]; ok {
 			existing.Quantity += r.Quantity
 			existing.ListIDs = append(existing.ListIDs, r.ListID)
 		} else {
-			groupMap[supplierName][r.PartID] = &SupplierItem{
+			groupMap[supplierID][r.PartID] = &SupplierItem{
 				PartID:   r.PartID,
 				Quantity: r.Quantity,
 				ListIDs:  []int{r.ListID},

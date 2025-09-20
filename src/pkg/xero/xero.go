@@ -416,34 +416,34 @@ func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessTok
 
 // Supplier represents minimal supplier data from local DB to be synced as Xero Contact.
 type Supplier struct {
-	// supplier_name is the primary key in DB and will be used as Contact.Name in Xero
+	SupplierID   string `json:"supplier_id"` // new: supplier code used as ContactNumber
 	SupplierName string `json:"supplier_name"`
 	ContactEmail string `json:"contact_email"`
 	Phone        string `json:"phone"`
 }
 
-// SyncSuppliersToXero posts a minimal Contacts payload to Xero.
-// We do NOT set ContactID (Xero will assign). Contact.Name will be supplier_name.
+// SyncSuppliersToXero posts Contacts and sets ContactNumber = SupplierID
 func SyncSuppliersToXero(ctx context.Context, httpClient *http.Client, accessToken, tenantID string, suppliers []Supplier) error {
 	if len(suppliers) == 0 {
 		return nil
 	}
-
 	type phonePayload struct {
 		Type  string `json:"Type,omitempty"`
 		Phone string `json:"Phone,omitempty"`
 	}
 	type contactPayload struct {
-		Name         string         `json:"Name,omitempty"`
-		EmailAddress string         `json:"EmailAddress,omitempty"`
-		Phones       []phonePayload `json:"Phones,omitempty"`
+		Name          string         `json:"Name,omitempty"`
+		ContactNumber string         `json:"ContactNumber,omitempty"`
+		EmailAddress  string         `json:"EmailAddress,omitempty"`
+		Phones        []phonePayload `json:"Phones,omitempty"`
 	}
 
 	contacts := make([]contactPayload, 0, len(suppliers))
 	for _, s := range suppliers {
 		cp := contactPayload{
-			Name:         s.SupplierName,
-			EmailAddress: s.ContactEmail,
+			Name:          s.SupplierName,
+			ContactNumber: s.SupplierID, // use supplier_id as identifier
+			EmailAddress:  s.ContactEmail,
 		}
 		if s.Phone != "" {
 			cp.Phones = []phonePayload{{Type: "DEFAULT", Phone: s.Phone}}
@@ -477,7 +477,6 @@ func SyncSuppliersToXero(ctx context.Context, httpClient *http.Client, accessTok
 		_, _ = buf.ReadFrom(resp.Body)
 		return fmt.Errorf("xero contacts post failed: status=%d body=%s", resp.StatusCode, buf.String())
 	}
-	// success
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
 }
