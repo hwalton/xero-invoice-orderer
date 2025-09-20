@@ -34,3 +34,25 @@ SET access_token = EXCLUDED.access_token,
 	}
 	return nil
 }
+
+// AddShoppingListEntry inserts a row into shopping_list for the given part and quantity.
+// note is optional and stored in the note column.
+func AddShoppingListEntry(ctx context.Context, dbURL, partID string, quantity int, note string) error {
+	if dbURL == "" {
+		return fmt.Errorf("db url missing")
+	}
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		return fmt.Errorf("connect db: %w", err)
+	}
+	defer pool.Close()
+
+	_, err = pool.Exec(ctx, `
+INSERT INTO shopping_list (part_id, quantity, note, created_at)
+VALUES ($1, $2, $3, now())
+`, partID, quantity, note)
+	if err != nil {
+		return fmt.Errorf("insert shopping_list: %w", err)
+	}
+	return nil
+}
