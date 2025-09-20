@@ -42,17 +42,13 @@ func (h *Handler) logoutHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
-	userID, _ := r.Context().Value(ctxUserID).(string)
-	var ok bool
+	// ensure middleware helper populates ctxUserID when possible
+	if h.auth != nil {
+		r = mid.EnsureUserIDInContext(r, h.auth)
+	}
+	userID := mid.GetUserID(r.Context())
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	// if no userID in context, try to extract from cookie/header using middleware helper
-	if userID == "" && h.auth != nil {
-		if userID, ok = mid.GetUserIDFromRequest(r, h.auth); ok && userID != "" {
-			r = r.WithContext(context.WithValue(r.Context(), ctxUserID, userID))
-		}
-	}
 
 	// load connections for the user so template can render them server-side
 	var conns []service.XeroConnection

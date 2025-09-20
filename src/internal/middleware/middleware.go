@@ -62,17 +62,15 @@ func RequireRole(role string) func(http.Handler) http.Handler {
 	}
 }
 
-// GetUserIDFromRequest extracts the app user id from the request.
-// Order:
-// 1. ctxUserID (set by RequireAuth when middleware ran)
-// 2. access_token cookie / Authorization header verified via provided authenticator
-func GetUserIDFromRequest(r *http.Request, auth authpkg.Authenticator) (string, bool) {
-	// context value
+// EnsureUserIDInContext ensures ctxUserID (and ctxClaims) are set on the request context when possible.
+// Returns a request with an updated context (original request returned if nothing to add).
+func EnsureUserIDInContext(r *http.Request, auth authpkg.Authenticator) *http.Request {
+	// already present
 	if v, ok := r.Context().Value(ctxUserID).(string); ok && v != "" {
-		return v, true
+		return r
 	}
 
-	// clone request so we don't mutate the original
+	// clone request for auth checks so we don't mutate headers on the original
 	req := r
 	if req.Header.Get("Authorization") == "" {
 		if c, err := req.Cookie("access_token"); err == nil && c.Value != "" {
@@ -82,17 +80,43 @@ func GetUserIDFromRequest(r *http.Request, auth authpkg.Authenticator) (string, 
 	}
 
 	if auth == nil {
-		return "", false
+		return r
 	}
+
 	claims, ok := auth.Authenticate(req)
 	if !ok || claims == nil {
-		return "", false
+		return r
 	}
+
+	var uid string
 	if v, ok := claims["sub"].(string); ok && v != "" {
-		return v, true
+		uid = v
+	} else if v, ok := claims["user_id"].(string); ok && v != "" {
+		uid = v
 	}
-	if v, ok := claims["user_id"].(string); ok && v != "" {
-		return v, true
+	if uid == "" {
+		return r
 	}
-	return "", false
+
+	ctx := context.WithValue(r.Context(), ctxClaims, claims)
+	ctx = context.WithValue(ctx, ctxUserID, uid)
+	return r.WithContext(ctx)
+}
+
+// SetUserIDInContext stores the provided userID into the request context and returns a cloned request.
+// Exported so handlers can set the value for the current request after e.g. login.
+func SetUserIDInContext(r *http.Request, userID string) *http.Request {
+	if userID == "" {
+		return r
+	}
+	ctx := context.WithValue(r.Context(), ctxUserID, userID)
+	return r.WithContext(ctx)
+}
+
+// GetUserID returns the user id stored in ctx, or empty string if not present.
+func GetUserID(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxUserID).(string); ok {
+		return v
+	}
+	return ""
 }

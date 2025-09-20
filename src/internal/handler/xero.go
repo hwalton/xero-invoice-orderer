@@ -27,15 +27,11 @@ func generateState(n int) (string, error) {
 
 // xeroConnect redirects to Xero auth URL
 func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
-	// prefer owner id from context; if missing, derive via auth helper and store in context
-	ownerID, _ := r.Context().Value(ctxUserID).(string)
-	if ownerID == "" && h.auth != nil {
-		if got, ok := mid.GetUserIDFromRequest(r, h.auth); ok && got != "" {
-			ownerID = got
-			r = r.WithContext(context.WithValue(r.Context(), ctxUserID, ownerID))
-		}
+	// ensure user id in context (populated from cookie/auth) and read it
+	if h.auth != nil {
+		r = mid.EnsureUserIDInContext(r, h.auth)
 	}
-
+	ownerID := mid.GetUserID(r.Context())
 	if ownerID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -119,7 +115,10 @@ func (h *Handler) xeroCallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 // xeroConnections lists stored Xero connections for the current user.
 func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request) {
-	ownerID, _ := r.Context().Value(ctxUserID).(string)
+	if h.auth != nil {
+		r = mid.EnsureUserIDInContext(r, h.auth)
+	}
+	ownerID := mid.GetUserID(r.Context())
 	if ownerID == "" {
 		http.Error(w, "owner id missing", http.StatusUnauthorized)
 		return
@@ -134,20 +133,16 @@ func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(conns)
+	_ = json.NewEncoder(w).Encode(conns)
 }
 
 // xeroSync triggers a sync for tenant (tenant path param).
 func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
-	// prefer owner id from context; if missing, derive via auth helper and store in context
-	ownerID, _ := r.Context().Value(ctxUserID).(string)
-	if ownerID == "" && h.auth != nil {
-		if got, ok := mid.GetUserIDFromRequest(r, h.auth); ok && got != "" {
-			ownerID = got
-			r = r.WithContext(context.WithValue(r.Context(), ctxUserID, ownerID))
-		}
+	// ensure user id in context (populated from cookie/auth) and read it
+	if h.auth != nil {
+		r = mid.EnsureUserIDInContext(r, h.auth)
 	}
-
+	ownerID := mid.GetUserID(r.Context())
 	if ownerID == "" {
 		http.Error(w, "owner id missing", http.StatusUnauthorized)
 		return
