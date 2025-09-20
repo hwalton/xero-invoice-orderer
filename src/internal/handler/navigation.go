@@ -34,7 +34,7 @@ func (h *Handler) loginHandler(w http.ResponseWriter, r *http.Request) {
 
 // logoutHandler clears auth cookies and redirects to /login
 func (h *Handler) logoutHandler(w http.ResponseWriter, r *http.Request) {
-	names := []string{"access_token", "refresh_token", "user_id", "current_card_id", "review_ahead_days", "max_new_cards_per_day"}
+	names := []string{"access_token", "refresh_token", "current_card_id", "review_ahead_days", "max_new_cards_per_day"}
 	for _, n := range names {
 		utils.ClearCookie(w, r, n)
 	}

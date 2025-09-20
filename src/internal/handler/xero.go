@@ -27,14 +27,12 @@ func generateState(n int) (string, error) {
 
 // xeroConnect redirects to Xero auth URL
 func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
-	// prefer ownerID from user_id cookie to avoid re-parsing JWT
-	var ownerID string
-	if c, err := r.Cookie("user_id"); err == nil && c.Value != "" {
-		ownerID = c.Value
-	} else if h.auth != nil {
-		// fallback to middleware helper if cookie missing
+	// prefer owner id from context; if missing, derive via auth helper and store in context
+	ownerID, _ := r.Context().Value(ctxUserID).(string)
+	if ownerID == "" && h.auth != nil {
 		if got, ok := mid.GetUserIDFromRequest(r, h.auth); ok && got != "" {
 			ownerID = got
+			r = r.WithContext(context.WithValue(r.Context(), ctxUserID, ownerID))
 		}
 	}
 
