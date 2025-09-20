@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -19,16 +20,21 @@ func UpsertConnection(ctx context.Context, dbURL, ownerID, tenantID, accessToken
 	defer pool.Close()
 
 	id := ownerID + ":" + tenantID
-	// compute expires_at using seconds
+
+	nowEpoch := time.Now().Unix()
+	expiresAt := nowEpoch + expiresInSeconds
+	createdAt := nowEpoch
+	updatedAt := nowEpoch
+
 	_, err = pool.Exec(ctx, `
 INSERT INTO xero_connections (id, owner_id, tenant_id, access_token, refresh_token, expires_at, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, now(), now())
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (id) DO UPDATE
 SET access_token = EXCLUDED.access_token,
     refresh_token = EXCLUDED.refresh_token,
     expires_at = EXCLUDED.expires_at,
-    updated_at = now()
-`, id, ownerID, tenantID, accessToken, refreshToken, fmt.Sprintf("%d", expiresInSeconds))
+    updated_at = EXCLUDED.updated_at
+`, id, ownerID, tenantID, accessToken, refreshToken, expiresAt, createdAt, updatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert connection: %w", err)
 	}
@@ -49,7 +55,7 @@ func AddShoppingListEntry(ctx context.Context, dbURL, partID string, quantity in
 
 	_, err = pool.Exec(ctx, `
 INSERT INTO shopping_list (part_id, quantity, note, created_at)
-VALUES ($1, $2, $3, now())
+VALUES ($1, $2, $3, (extract(epoch from now()))::bigint)
 `, partID, quantity, note)
 	if err != nil {
 		return fmt.Errorf("insert shopping_list: %w", err)

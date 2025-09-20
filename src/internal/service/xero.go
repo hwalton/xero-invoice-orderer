@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -15,9 +14,9 @@ type XeroConnection struct {
 	TenantID     string
 	AccessToken  string
 	RefreshToken string
-	ExpiresAt    time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ExpiresAt    int64
+	CreatedAt    int64
+	UpdatedAt    int64
 }
 
 // GetConnectionsForOwner returns stored connections for an owner.

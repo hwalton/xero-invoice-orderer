@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -51,6 +52,9 @@ func (h *Handler) xeroConnectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	ttl := 300 // seconds (5 minutes) — adjust as needed
 	if err := service.CreateOAuthState(r.Context(), h.dbURL, state, ownerID, ttl); err != nil {
+		// Log the underlying error for debugging (do not expose internal details to clients).
+		// Use server logs to inspect permission/constraint/connection issues.
+		log.Printf("xeroConnect: CreateOAuthState failed: %v", err)
 		http.Error(w, "failed to persist state", http.StatusInternalServerError)
 		return
 	}
@@ -168,7 +172,7 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 
 	// token refresh, load parts, sync to Xero (unchanged)
 	now := time.Now().UTC()
-	if found.ExpiresAt.Before(now.Add(1 * time.Minute)) {
+	if found.ExpiresAt <= now.Unix()+60 {
 		clientID := os.Getenv("XERO_CLIENT_ID")
 		clientSecret := os.Getenv("XERO_CLIENT_SECRET")
 		tr, err := xero.RefreshToken(ctx, h.client, clientID, clientSecret, found.RefreshToken)
@@ -185,7 +189,7 @@ func (h *Handler) xeroSyncHandler(w http.ResponseWriter, r *http.Request) {
 		if secs == 0 {
 			secs = 3600
 		}
-		found.ExpiresAt = time.Now().Add(time.Duration(secs) * time.Second)
+		found.ExpiresAt = time.Now().Unix() + secs
 	}
 
 	parts, err := service.LoadParts(ctx, h.dbURL)
@@ -246,7 +250,7 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 
 	// refresh token if near expiry
 	now := time.Now().UTC()
-	if found.ExpiresAt.Before(now.Add(1 * time.Minute)) {
+	if found.ExpiresAt <= now.Unix()+60 {
 		clientID := os.Getenv("XERO_CLIENT_ID")
 		clientSecret := os.Getenv("XERO_CLIENT_SECRET")
 		tr, err := xero.RefreshToken(ctx, h.client, clientID, clientSecret, found.RefreshToken)
@@ -263,7 +267,7 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 		if secs == 0 {
 			secs = 3600
 		}
-		found.ExpiresAt = time.Now().Add(time.Duration(secs) * time.Second)
+		found.ExpiresAt = time.Now().Unix() + secs
 	}
 
 	// fetch invoice lines
