@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -239,69 +238,10 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3) Build PerAssemblyBOM (children quantities divided by root qty; root keeps its invoice qty)
-	type bomNode = service.BOMNode
-	var norm func(node bomNode, rootQty float64, isRoot bool) bomNode
-	norm = func(node bomNode, rootQty float64, isRoot bool) bomNode {
-		q := node.Quantity
-		if !isRoot && rootQty > 0 {
-			q = q / rootQty
-		}
-		out := bomNode{
-			PartID:     node.PartID,
-			Name:       node.Name,
-			Quantity:   q,
-			IsAssembly: node.IsAssembly,
-		}
-		for _, ch := range node.Children {
-			out.Children = append(out.Children, norm(ch, rootQty, false))
-		}
-		return out
-	}
-	perAssy := make([]bomNode, 0, len(bom))
-	for i, root := range bom {
-		rootQty := roots[i].Quantity
-		perAssy = append(perAssy, norm(root, rootQty, true))
-	}
+	perAssy := service.BuildPerAssemblyBOM(bom, roots)
 
 	// 4) Aggregate leaf totals across all roots (sum effective totals only for leaves)
-	type leafTotal struct {
-		PartID   string  `json:"part_id"`
-		Name     string  `json:"name"`
-		Quantity float64 `json:"quantity"`
-	}
-	// Multiply down the per-assembly tree:
-	// - For assemblies: multiplier *= node.Quantity (qty required per parent)
-	// - For leaves: add multiplier * node.Quantity
-	agg := map[string]*leafTotal{}
-	var multWalk func(node bomNode, mul float64)
-	multWalk = func(node bomNode, mul float64) {
-		if node.IsAssembly {
-			nextMul := mul
-			// node.Quantity on perAssy roots is the invoice qty; on inner assemblies it's qty per parent
-			if node.Quantity > 0 {
-				nextMul = mul * node.Quantity
-			}
-			for _, ch := range node.Children {
-				multWalk(ch, nextMul)
-			}
-			return
-		}
-		// leaf: qty per parent chain
-		total := mul * node.Quantity
-		if lt, ok := agg[node.PartID]; ok {
-			lt.Quantity += total
-		} else {
-			agg[node.PartID] = &leafTotal{PartID: node.PartID, Name: node.Name, Quantity: total}
-		}
-	}
-	for _, root := range perAssy {
-		multWalk(root, 1)
-	}
-	leafTotals := make([]leafTotal, 0, len(agg))
-	for _, v := range agg {
-		v.Quantity = math.Round(v.Quantity)
-		leafTotals = append(leafTotals, *v)
-	}
+	leafTotals := service.AggregateLeafTotals(perAssy)
 
 	// 5) Store cookies for home page rendering
 	setJSONCookie := func(name string, v any) {
