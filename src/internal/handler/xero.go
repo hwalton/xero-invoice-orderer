@@ -7,11 +7,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	// "io"
 	"log"
+	"math"
 	"net/http"
 	"os"
-	// "strconv"
 	"strings"
 	"time"
 
@@ -144,7 +143,11 @@ func (h *Handler) xeroConnectionsHandler(w http.ResponseWriter, r *http.Request)
 }
 
 // getInvoiceHandler POSTs a form with invoice_id, queries Xero for that invoice's line item codes,
-// and renders the home page with the returned items listed.
+// resolves BOM, then prepares:
+//   - PerAssemblyBOM: tree showing "Qty required (for each Assy)"
+//   - LeafTotals: flat list aggregating total required for purchasable leaves
+//
+// These are stored in cookies for home page rendering.
 func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 	if h.auth != nil {
 		r = mid.EnsureUserIDInContext(r, h.auth)
@@ -158,38 +161,35 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	invoiceID := strings.TrimSpace(r.FormValue("invoice_id"))
-	if invoiceID == "" {
-		http.Error(w, "invoice id required", http.StatusBadRequest)
+	invoiceNumber := strings.TrimSpace(r.FormValue("invoice_id"))
+	if invoiceNumber == "" {
+		http.Error(w, "invoice number required", http.StatusBadRequest)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
+	// load Xero connection for the owner (first one)
 	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
-	if err != nil {
-		http.Error(w, "failed to load connections: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if len(conns) == 0 {
+	if err != nil || len(conns) == 0 {
 		http.Error(w, "no xero connection found for owner", http.StatusNotFound)
 		return
 	}
 	found := &conns[0]
 
-	// refresh token if near expiry
+	// refresh token if near expiry (<= 60s)
 	now := time.Now().UTC()
 	if found.ExpiresAt <= now.Unix()+60 {
 		clientID := os.Getenv("XERO_CLIENT_ID")
 		clientSecret := os.Getenv("XERO_CLIENT_SECRET")
-		tr, err := xero.RefreshToken(ctx, h.client, clientID, clientSecret, found.RefreshToken)
-		if err != nil {
-			http.Error(w, "refresh token failed: "+err.Error(), http.StatusInternalServerError)
+		tr, rerr := xero.RefreshToken(ctx, h.client, clientID, clientSecret, found.RefreshToken)
+		if rerr != nil {
+			http.Error(w, "refresh token failed: "+rerr.Error(), http.StatusInternalServerError)
 			return
 		}
 		if err := service.UpsertConnection(ctx, h.dbURL, ownerID, found.TenantID, tr.AccessToken, tr.RefreshToken, tr.ExpiresIn); err != nil {
-			http.Error(w, "failed to persist refreshed token: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "persist refreshed token failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		found.AccessToken = tr.AccessToken
@@ -200,50 +200,109 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 		found.ExpiresAt = time.Now().Unix() + secs
 	}
 
-	// fetch invoice lines
-	itemLines, err := xero.GetInvoiceItemCodes(ctx, h.client, found.AccessToken, found.TenantID, invoiceID)
-	if err != nil {
-		http.Error(w, "failed to fetch invoice: "+err.Error(), http.StatusInternalServerError)
-		return
+	client := h.client
+	if client == nil {
+		client = http.DefaultClient
 	}
 
-	// Build roots using Xero Item Codes directly
-	roots := make([]service.RootItem, 0, len(itemLines))
-	for _, ln := range itemLines {
-		if ln.ItemCode == "" || ln.Quantity <= 0 {
-			continue
-		}
-		roots = append(roots, service.RootItem{
-			PartID:   ln.ItemCode, // use Code as the item_id everywhere
-			Name:     ln.Name,
-			Quantity: ln.Quantity,
-		})
+	// 1) Fetch invoice lines (roots)
+	lines, err := xero.GetInvoiceItemCodes(ctx, client, found.AccessToken, found.TenantID, invoiceNumber)
+	if err != nil {
+		http.Error(w, "fetch invoice items failed: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
-	if len(roots) == 0 {
-		utils.SetCookie(w, r, "xero_sync_msg", "No valid invoice items found.", time.Now().Add(5*time.Minute))
+	if len(lines) == 0 {
+		utils.SetCookie(w, r, "xero_sync_msg", "No items found on invoice "+invoiceNumber, time.Now().Add(3*time.Minute))
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 
-	// Resolve BOM (maxDepth 12) using Xero (by Code) + Supabase relationships
-	bom, errMsg, err := service.ResolveInvoiceBOM(ctx, h.dbURL, roots, 12, h.client, found.AccessToken, found.TenantID)
+	roots := make([]service.RootItem, 0, len(lines))
+	for _, li := range lines {
+		roots = append(roots, service.RootItem{
+			PartID:   li.ItemCode,
+			Name:     li.Name,
+			Quantity: li.Quantity,
+		})
+	}
+
+	// 2) Resolve BOM (effective totals for all nodes)
+	bom, errMsg, err := service.ResolveInvoiceBOM(ctx, h.dbURL, roots, 12, client, found.AccessToken, found.TenantID)
 	if err != nil {
-		http.Error(w, "BOM resolution failed: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "resolve bom failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if errMsg != "" {
-		utils.SetCookie(w, r, "xero_sync_msg", errMsg, time.Now().Add(5*time.Minute))
-		utils.ClearCookie(w, r, "xero_invoice_bom")
-		utils.ClearCookie(w, r, "xero_invoice_number")
+		utils.SetCookie(w, r, "xero_sync_msg", errMsg, time.Now().Add(3*time.Minute))
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 
-	// success: store BOM in cookie and redirect home
-	b, _ := json.Marshal(bom)
-	enc := base64.StdEncoding.EncodeToString(b)
-	utils.SetCookie(w, r, "xero_invoice_bom", enc, time.Now().Add(5*time.Minute))
-	utils.SetCookie(w, r, "xero_invoice_number", invoiceID, time.Now().Add(5*time.Minute))
+	// 3) Build PerAssemblyBOM (children quantities divided by root qty; root keeps its invoice qty)
+	type bomNode = service.BOMNode
+	var norm func(node bomNode, rootQty float64, isRoot bool) bomNode
+	norm = func(node bomNode, rootQty float64, isRoot bool) bomNode {
+		q := node.Quantity
+		if !isRoot && rootQty > 0 {
+			q = q / rootQty
+		}
+		out := bomNode{
+			PartID:     node.PartID,
+			Name:       node.Name,
+			Quantity:   q,
+			IsAssembly: node.IsAssembly,
+		}
+		for _, ch := range node.Children {
+			out.Children = append(out.Children, norm(ch, rootQty, false))
+		}
+		return out
+	}
+	perAssy := make([]bomNode, 0, len(bom))
+	for i, root := range bom {
+		rootQty := roots[i].Quantity
+		perAssy = append(perAssy, norm(root, rootQty, true))
+	}
+
+	// 4) Aggregate leaf totals across all roots (sum effective totals only for leaves)
+	type leafTotal struct {
+		PartID   string  `json:"part_id"`
+		Name     string  `json:"name"`
+		Quantity float64 `json:"quantity"`
+	}
+	agg := map[string]*leafTotal{}
+	var walk func(node bomNode)
+	walk = func(node bomNode) {
+		if !node.IsAssembly {
+			if lt, ok := agg[node.PartID]; ok {
+				lt.Quantity += node.Quantity
+			} else {
+				agg[node.PartID] = &leafTotal{PartID: node.PartID, Name: node.Name, Quantity: node.Quantity}
+			}
+			return
+		}
+		for _, ch := range node.Children {
+			walk(ch)
+		}
+	}
+	for _, root := range bom {
+		walk(root)
+	}
+	leafTotals := make([]leafTotal, 0, len(agg))
+	for _, v := range agg {
+		// round to nearest int for form defaults
+		v.Quantity = math.Round(v.Quantity)
+		leafTotals = append(leafTotals, *v)
+	}
+
+	// 5) Store cookies for home page rendering
+	setJSONCookie := func(name string, v any) {
+		b, _ := json.Marshal(v)
+		utils.SetCookie(w, r, name, base64.StdEncoding.EncodeToString(b), time.Now().Add(5*time.Minute))
+	}
+	setJSONCookie("xero_perassy_bom", perAssy)
+	setJSONCookie("xero_leaf_totals", leafTotals)
+	utils.SetCookie(w, r, "xero_invoice_number", invoiceNumber, time.Now().Add(5*time.Minute))
+
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

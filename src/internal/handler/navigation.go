@@ -12,7 +12,6 @@ import (
 	mid "github.com/hwalton/freeride-campervans/internal/middleware"
 	"github.com/hwalton/freeride-campervans/internal/service"
 	"github.com/hwalton/freeride-campervans/internal/utils"
-	"github.com/hwalton/freeride-campervans/pkg/xero"
 )
 
 // login serves the login page via templates
@@ -80,27 +79,32 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 		utils.ClearCookie(w, r, "xero_sync_msg")
 	}
 
-	// read invoice items cookie (base64-encoded), decode and clear it
-	var invoiceItems []xero.InvoiceLine
-	if c, err := r.Cookie("xero_invoice_items"); err == nil && c.Value != "" {
-		if decoded, derr := base64.StdEncoding.DecodeString(c.Value); derr == nil {
-			_ = json.Unmarshal(decoded, &invoiceItems) // ignore unmarshal error for UI
-		}
-		utils.ClearCookie(w, r, "xero_invoice_items")
-	}
-	// read BOM cookie (base64-encoded), decode and clear it
-	var invoiceBOM []service.BOMNode
-	if c, err := r.Cookie("xero_invoice_bom"); err == nil && c.Value != "" {
-		if decoded, derr := base64.StdEncoding.DecodeString(c.Value); derr == nil {
-			_ = json.Unmarshal(decoded, &invoiceBOM)
-		}
-		utils.ClearCookie(w, r, "xero_invoice_bom")
-	}
+	// read invoice views from cookies
 	var invoiceNumber string
 	if c, err := r.Cookie("xero_invoice_number"); err == nil && c.Value != "" {
 		invoiceNumber = c.Value
 		utils.ClearCookie(w, r, "xero_invoice_number")
 	}
+
+	decode := func(name string, dst any) {
+		if c, err := r.Cookie(name); err == nil && c.Value != "" {
+			if decoded, derr := base64.StdEncoding.DecodeString(c.Value); derr == nil {
+				_ = json.Unmarshal(decoded, dst)
+			}
+			utils.ClearCookie(w, r, name)
+		}
+	}
+
+	var perAssyBOM []service.BOMNode
+	type leafTotal struct {
+		PartID   string  `json:"part_id"`
+		Name     string  `json:"name"`
+		Quantity float64 `json:"quantity"`
+	}
+	var leafTotals []leafTotal
+
+	decode("xero_perassy_bom", &perAssyBOM)
+	decode("xero_leaf_totals", &leafTotals)
 
 	data := map[string]interface{}{
 		"Title":             "Home",
@@ -109,8 +113,11 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 		"XeroTenantID":      tenantID,
 		"XeroCreatedAt":     createdAt,
 		"XeroSyncMessage":   xeroSyncMsg,
-		"InvoiceBOM":        invoiceBOM,
-		"InvoiceNumber":     invoiceNumber,
+
+		// new view data
+		"PerAssemblyBOM": perAssyBOM,
+		"LeafTotals":     leafTotals,
+		"InvoiceNumber":  invoiceNumber,
 	}
 
 	if h.templates != nil {
