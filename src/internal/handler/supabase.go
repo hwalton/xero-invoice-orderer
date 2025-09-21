@@ -78,26 +78,22 @@ func (h *Handler) addShoppingListHandler(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "owner id missing", http.StatusUnauthorized)
 		return
 	}
-
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
 
-	itemCodes := r.Form["item_code"]
+	itemIDs := r.Form["item_code"] // now carries ItemID from BOM
 	qtys := r.Form["qty"]
-
-	if len(itemCodes) == 0 || len(qtys) == 0 {
+	if len(itemIDs) == 0 || len(qtys) == 0 {
 		http.Error(w, "invalid input", http.StatusBadRequest)
 		return
 	}
 
-	// aggregate by part_id
-	type agg struct{ qty int }
 	sum := make(map[string]int)
-	for i := range itemCodes {
-		code := strings.TrimSpace(itemCodes[i])
-		if code == "" {
+	for i := range itemIDs {
+		id := strings.TrimSpace(itemIDs[i])
+		if id == "" {
 			continue
 		}
 		qStr := "1"
@@ -108,9 +104,8 @@ func (h *Handler) addShoppingListHandler(w http.ResponseWriter, r *http.Request)
 		if err != nil || q <= 0 {
 			continue
 		}
-		sum[code] += q
+		sum[id] += q
 	}
-
 	if len(sum) == 0 {
 		http.Error(w, "no valid items", http.StatusBadRequest)
 		return
@@ -120,15 +115,14 @@ func (h *Handler) addShoppingListHandler(w http.ResponseWriter, r *http.Request)
 	defer cancel()
 
 	added := 0
-	for code, q := range sum {
-		if err := service.AddShoppingListEntry(ctx, h.dbURL, code, q, false); err != nil {
+	for id, q := range sum {
+		if err := service.AddShoppingListEntry(ctx, h.dbURL, id, q, false); err != nil {
 			http.Error(w, "failed to add to shopping list: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		added++
 	}
 
-	// set a small flash cookie and redirect back to home
 	msg := fmt.Sprintf("%d items added to shopping list", added)
 	utils.SetCookie(w, r, "xero_sync_msg", msg, time.Now().Add(5*time.Minute))
 	http.Redirect(w, r, "/", http.StatusSeeOther)

@@ -10,13 +10,13 @@ import (
 // ShoppingRow is a row from shopping_list.
 type ShoppingRow struct {
 	ListID   int
-	PartID   string
+	ItemID   string
 	Quantity int
 }
 
-// SupplierItem represents an item assigned to a supplier; ListIDs tracks source rows.
-type SupplierItem struct {
-	PartID   string
+// ContactItem represents an item assigned to a contact; ListIDs tracks source rows.
+type ContactItem struct {
+	ItemID   string
 	Quantity int
 	ListIDs  []int
 }
@@ -32,7 +32,7 @@ func GetUnorderedShoppingRows(ctx context.Context, dbURL string) ([]ShoppingRow,
 	}
 	defer pool.Close()
 
-	rows, err := pool.Query(ctx, `SELECT list_id, part_id, quantity FROM shopping_list WHERE ordered = FALSE`)
+	rows, err := pool.Query(ctx, `SELECT list_id, item_id, quantity FROM shopping_list WHERE ordered = FALSE`)
 	if err != nil {
 		return nil, fmt.Errorf("query shopping_list: %w", err)
 	}
@@ -41,7 +41,7 @@ func GetUnorderedShoppingRows(ctx context.Context, dbURL string) ([]ShoppingRow,
 	var out []ShoppingRow
 	for rows.Next() {
 		var r ShoppingRow
-		if err := rows.Scan(&r.ListID, &r.PartID, &r.Quantity); err != nil {
+		if err := rows.Scan(&r.ListID, &r.ItemID, &r.Quantity); err != nil {
 			return nil, fmt.Errorf("scan shopping row: %w", err)
 		}
 		out = append(out, r)
@@ -49,9 +49,9 @@ func GetUnorderedShoppingRows(ctx context.Context, dbURL string) ([]ShoppingRow,
 	return out, nil
 }
 
-// GroupShoppingItemsBySupplier assigns each shopping row to a supplier and aggregates duplicates.
-// It selects the first supplier_name found for a part. If a part has no supplier -> error.
-func GroupShoppingItemsBySupplier(ctx context.Context, dbURL string, rows []ShoppingRow) (map[string][]SupplierItem, error) {
+// GroupShoppingItemsByContact assigns each shopping row to a contact (AccountNumber) and aggregates duplicates.
+// If an item has no contact mapping -> error.
+func GroupShoppingItemsByContact(ctx context.Context, dbURL string, rows []ShoppingRow) (map[string][]ContactItem, error) {
 	if dbURL == "" {
 		return nil, fmt.Errorf("db url missing")
 	}
@@ -64,24 +64,24 @@ func GroupShoppingItemsBySupplier(ctx context.Context, dbURL string, rows []Shop
 	}
 	defer pool.Close()
 
-	// map supplier_name -> (part -> SupplierItem)
-	groupMap := map[string]map[string]*SupplierItem{}
+	// map contact_account_number -> (item -> ContactItem)
+	groupMap := map[string]map[string]*ContactItem{}
 
 	for _, r := range rows {
-		var supplierID string
-		err := pool.QueryRow(ctx, `SELECT supplier_id FROM parts_suppliers WHERE part_id = $1 LIMIT 1`, r.PartID).Scan(&supplierID)
+		var contactID string // Xero Contacts.AccountNumber
+		err := pool.QueryRow(ctx, `SELECT contact_id FROM items_contacts WHERE item_id = $1 LIMIT 1`, r.ItemID).Scan(&contactID)
 		if err != nil {
-			return nil, fmt.Errorf("no supplier found for part %s", r.PartID)
+			return nil, fmt.Errorf("no contact mapping found for item %s", r.ItemID)
 		}
-		if _, ok := groupMap[supplierID]; !ok {
-			groupMap[supplierID] = map[string]*SupplierItem{}
+		if _, ok := groupMap[contactID]; !ok {
+			groupMap[contactID] = map[string]*ContactItem{}
 		}
-		if existing, ok := groupMap[supplierID][r.PartID]; ok {
+		if existing, ok := groupMap[contactID][r.ItemID]; ok {
 			existing.Quantity += r.Quantity
 			existing.ListIDs = append(existing.ListIDs, r.ListID)
 		} else {
-			groupMap[supplierID][r.PartID] = &SupplierItem{
-				PartID:   r.PartID,
+			groupMap[contactID][r.ItemID] = &ContactItem{
+				ItemID:   r.ItemID,
 				Quantity: r.Quantity,
 				ListIDs:  []int{r.ListID},
 			}
@@ -89,10 +89,10 @@ func GroupShoppingItemsBySupplier(ctx context.Context, dbURL string, rows []Shop
 	}
 
 	// convert to desired output shape
-	out := map[string][]SupplierItem{}
-	for sup, m := range groupMap {
+	out := map[string][]ContactItem{}
+	for contact, m := range groupMap {
 		for _, v := range m {
-			out[sup] = append(out[sup], *v)
+			out[contact] = append(out[contact], *v)
 		}
 	}
 	return out, nil

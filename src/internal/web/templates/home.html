@@ -75,12 +75,12 @@
       <div class="space-y-3">
         <!-- Sync button + Create POs (same row, spaced) -->
         <div class="flex items-center justify-between">
-          <form method="POST" action="/xero/sync" style="margin:0">
+          <!-- <form method="POST" action="/xero/sync" style="margin:0">
             <input type="hidden" name="tenant" value="{{ .XeroTenantID }}" />
             <button type="submit" class="inline-flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition">
               Sync Supabase to Xero
             </button>
-          </form>
+          </form> -->
 
           <form method="POST" action="/xero/create-pos" style="margin:0">
             <button type="submit" class="inline-flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition">
