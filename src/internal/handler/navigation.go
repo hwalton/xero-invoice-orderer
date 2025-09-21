@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hwalton/freeride-campervans/internal/frontend"
 	mid "github.com/hwalton/freeride-campervans/internal/middleware"
 	"github.com/hwalton/freeride-campervans/internal/service"
 	"github.com/hwalton/freeride-campervans/internal/utils"
-	"github.com/hwalton/freeride-campervans/internal/web"
 	"github.com/hwalton/freeride-campervans/pkg/xero"
 )
 
@@ -27,7 +27,7 @@ func (h *Handler) loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// fallback: embedded raw file (if templates not provided)
-	if b, err := web.TemplatesFS.ReadFile("templates/login.html"); err == nil {
+	if b, err := frontend.TemplatesFS.ReadFile("templates/login.html"); err == nil {
 		_, _ = w.Write(b)
 		return
 	}
@@ -121,7 +121,7 @@ func (h *Handler) homeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// fallback: render embedded template file if parsed templates not provided
-	if b, err := web.TemplatesFS.ReadFile("templates/home.html"); err == nil {
+	if b, err := frontend.TemplatesFS.ReadFile("templates/home.html"); err == nil {
 		t, err := template.New("home").Parse(string(b))
 		if err != nil {
 			http.Error(w, "template error", http.StatusInternalServerError)

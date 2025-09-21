@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hwalton/freeride-campervans/internal/frontend"
 	mid "github.com/hwalton/freeride-campervans/internal/middleware"
 	"github.com/hwalton/freeride-campervans/internal/service"
 	"github.com/hwalton/freeride-campervans/internal/utils"
-	"github.com/hwalton/freeride-campervans/internal/web"
 	"github.com/hwalton/freeride-campervans/pkg/supabasetoolbox"
 )
 
@@ -50,7 +50,7 @@ func (h *Handler) supabaseConnectHandler(w http.ResponseWriter, r *http.Request)
 			_ = h.templates.ExecuteTemplate(w, "login.html", data)
 			return
 		}
-		if b, e := web.TemplatesFS.ReadFile("templates/login.html"); e == nil {
+		if b, e := frontend.TemplatesFS.ReadFile("templates/login.html"); e == nil {
 			_, _ = w.Write(b)
 			return
 		}

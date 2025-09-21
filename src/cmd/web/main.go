@@ -9,8 +9,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/hwalton/freeride-campervans/internal/frontend"
 	"github.com/hwalton/freeride-campervans/internal/handler"
-	"github.com/hwalton/freeride-campervans/internal/web"
 	"github.com/hwalton/freeride-campervans/pkg/auth"
 	"github.com/joho/godotenv"
 )
@@ -33,7 +33,7 @@ func main() {
 		log.Fatal("SUPABASE_URL environment variable is required")
 	}
 
-	tpls, err := web.BuildTemplates()
+	tpls, err := frontend.BuildTemplates()
 	if err != nil {
 		log.Fatalf("build templates: %v", err)
 	}
@@ -47,8 +47,8 @@ func main() {
 	r.Use(middleware.Timeout(30 * time.Second))
 
 	// Serve embedded static files at /static/*
-	// web.StaticFS embeds files under the "static/" directory, so expose its "static" subtree.
-	staticSub, err := fs.Sub(web.StaticFS, "static")
+	// frontend.StaticFS embeds files under the "static/" directory, so expose its "static" subtree.
+	staticSub, err := fs.Sub(frontend.StaticFS, "static")
 	if err != nil {
 		log.Fatalf("failed to prepare static files: %v", err)
 	}
