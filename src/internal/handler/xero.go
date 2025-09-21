@@ -269,27 +269,36 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 		Name     string  `json:"name"`
 		Quantity float64 `json:"quantity"`
 	}
+	// Multiply down the per-assembly tree:
+	// - For assemblies: multiplier *= node.Quantity (qty required per parent)
+	// - For leaves: add multiplier * node.Quantity
 	agg := map[string]*leafTotal{}
-	var walk func(node bomNode)
-	walk = func(node bomNode) {
-		if !node.IsAssembly {
-			if lt, ok := agg[node.PartID]; ok {
-				lt.Quantity += node.Quantity
-			} else {
-				agg[node.PartID] = &leafTotal{PartID: node.PartID, Name: node.Name, Quantity: node.Quantity}
+	var multWalk func(node bomNode, mul float64)
+	multWalk = func(node bomNode, mul float64) {
+		if node.IsAssembly {
+			nextMul := mul
+			// node.Quantity on perAssy roots is the invoice qty; on inner assemblies it's qty per parent
+			if node.Quantity > 0 {
+				nextMul = mul * node.Quantity
+			}
+			for _, ch := range node.Children {
+				multWalk(ch, nextMul)
 			}
 			return
 		}
-		for _, ch := range node.Children {
-			walk(ch)
+		// leaf: qty per parent chain
+		total := mul * node.Quantity
+		if lt, ok := agg[node.PartID]; ok {
+			lt.Quantity += total
+		} else {
+			agg[node.PartID] = &leafTotal{PartID: node.PartID, Name: node.Name, Quantity: total}
 		}
 	}
-	for _, root := range bom {
-		walk(root)
+	for _, root := range perAssy {
+		multWalk(root, 1)
 	}
 	leafTotals := make([]leafTotal, 0, len(agg))
 	for _, v := range agg {
-		// round to nearest int for form defaults
 		v.Quantity = math.Round(v.Quantity)
 		leafTotals = append(leafTotals, *v)
 	}
