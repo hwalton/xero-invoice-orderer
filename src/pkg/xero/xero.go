@@ -433,7 +433,7 @@ func SyncSuppliersToXero(ctx context.Context, httpClient *http.Client, accessTok
 	}
 	type contactPayload struct {
 		Name          string         `json:"Name,omitempty"`
-		ContactNumber string         `json:"ContactNumber,omitempty"`
+		ContactNumber string         `json:"AccountNumber,omitempty"`
 		EmailAddress  string         `json:"EmailAddress,omitempty"`
 		Phones        []phonePayload `json:"Phones,omitempty"`
 	}
