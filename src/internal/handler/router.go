@@ -47,10 +47,14 @@ func NewRouter(a authpkg.Authenticator, c *http.Client, dbURL string, templates 
 		r.Get("/xero/callback", h.xeroCallbackHandler)
 		r.Get("/xero/connections", h.xeroConnectionsHandler)
 
-		r.Post("/xero/sync", h.xeroSyncHandler)
+		// r.Post("/xero/sync", h.xeroSyncHandler)
 		r.Post("/xero/invoice", h.getInvoiceHandler)
 		r.Post("/xero/create-pos", h.createPurchaseOrdersHandler)
 		r.Post("/shopping-list/add", h.addShoppingListHandler) // add invoice lines to shopping_list
+
+		// // Development helpers
+		// r.Get("/contacts", h.dumpContactsHandler)
+		// r.Get("/items", h.dumpItemsHandler)
 	})
 
 	return r

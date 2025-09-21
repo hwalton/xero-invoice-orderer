@@ -42,8 +42,8 @@ SET access_token = EXCLUDED.access_token,
 	return nil
 }
 
-// AddShoppingListEntry inserts a row into shopping_list for the given part and quantity.
-func AddShoppingListEntry(ctx context.Context, dbURL, partID string, quantity int, ordered bool) error {
+// AddShoppingListEntry inserts a row into shopping_list for the given item and quantity.
+func AddShoppingListEntry(ctx context.Context, dbURL, itemID string, quantity int, ordered bool) error {
 	if dbURL == "" {
 		return fmt.Errorf("db url missing")
 	}
@@ -54,9 +54,9 @@ func AddShoppingListEntry(ctx context.Context, dbURL, partID string, quantity in
 	defer pool.Close()
 
 	_, err = pool.Exec(ctx, `
-INSERT INTO shopping_list (part_id, quantity, ordered, created_at)
+INSERT INTO shopping_list (item_id, quantity, ordered, created_at)
 VALUES ($1, $2, $3, (extract(epoch from now()))::bigint)
-`, partID, quantity, ordered)
+`, itemID, quantity, ordered)
 	if err != nil {
 		return fmt.Errorf("insert shopping_list: %w", err)
 	}

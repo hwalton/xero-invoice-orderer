@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/hwalton/freeride-campervans/pkg/xero"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,11 +26,9 @@ type RootItem struct {
 }
 
 // ResolveInvoiceBOM expands invoice roots into a tree of purchasable leaves.
-// Rules:
-//   - If a part exists and has suppliers => leaf (purchasable), stop.
-//   - If exists but has no suppliers => must have children; otherwise error.
-//   - Recurse up to maxDepth; detect cycles; on any error, return an error message and no nodes.
-func ResolveInvoiceBOM(ctx context.Context, dbURL string, roots []RootItem, maxDepth int) ([]BOMNode, string, error) {
+// Uses Xero for item metadata; Supabase for relationships and item->contact mapping.
+// item IDs must be Xero Item Code; contacts are Xero AccountNumber in items_contacts.
+func ResolveInvoiceBOM(ctx context.Context, dbURL string, roots []RootItem, maxDepth int, httpClient *http.Client, accessToken, tenantID string) ([]BOMNode, string, error) {
 	if dbURL == "" {
 		return nil, "", fmt.Errorf("db url missing")
 	}
@@ -40,23 +39,22 @@ func ResolveInvoiceBOM(ctx context.Context, dbURL string, roots []RootItem, maxD
 	defer pool.Close()
 
 	// helpers
-	getPart := func(ctx context.Context, id string) (name string, exists bool, err error) {
-		row := pool.QueryRow(ctx, `SELECT name FROM parts WHERE part_id = $1`, id)
-		if err := row.Scan(&name); err != nil {
-			// scan error could be no rows
-			return "", false, nil
+	getItem := func(ctx context.Context, code string) (name string, exists bool, err error) {
+		name, ok, err := xero.GetItemNameByCode(ctx, httpClient, accessToken, tenantID, code)
+		if err != nil {
+			return "", false, err
 		}
-		return name, true, nil
+		return name, ok, nil
 	}
-	hasSupplier := func(ctx context.Context, id string) (bool, error) {
+	hasContact := func(ctx context.Context, id string) (bool, error) {
 		var c int
-		if err := pool.QueryRow(ctx, `SELECT COUNT(1) FROM parts_suppliers WHERE part_id = $1`, id).Scan(&c); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT COUNT(1) FROM items_contacts WHERE item_id = $1`, id).Scan(&c); err != nil {
 			return false, err
 		}
 		return c > 0, nil
 	}
 	getChildren := func(ctx context.Context, id string) (pairs [][2]interface{}, err error) {
-		rows, err := pool.Query(ctx, `SELECT child, quantity FROM parent_child WHERE parent = $1`, id)
+		rows, err := pool.Query(ctx, `SELECT child_id, quantity FROM parent_child WHERE parent_id = $1`, id)
 		if err != nil {
 			return nil, err
 		}
@@ -73,16 +71,13 @@ func ResolveInvoiceBOM(ctx context.Context, dbURL string, roots []RootItem, maxD
 		return out, rows.Err()
 	}
 
-	type stackKey struct {
-		id string
-	}
+	type stackKey struct{ id string }
 	visiting := map[stackKey]bool{}
 
 	var dfs func(ctx context.Context, id, displayName string, qty float64, depth int) (BOMNode, string, bool, error)
-
 	dfs = func(ctx context.Context, id, displayName string, qty float64, depth int) (BOMNode, string, bool, error) {
 		if depth > maxDepth {
-			return BOMNode{}, fmt.Sprintf("max depth exceeded while resolving part %s (possible circular reference)", id), false, nil
+			return BOMNode{}, fmt.Sprintf("max depth exceeded while resolving item %s (possible circular reference)", id), false, nil
 		}
 		k := stackKey{id: id}
 		if visiting[k] {
@@ -91,25 +86,24 @@ func ResolveInvoiceBOM(ctx context.Context, dbURL string, roots []RootItem, maxD
 		visiting[k] = true
 		defer func() { delete(visiting, k) }()
 
-		// ensure part exists
-		name, exists, err := getPart(ctx, id)
+		// ensure item exists (via Xero)
+		name, exists, err := getItem(ctx, id)
 		if err != nil {
 			return BOMNode{}, "", false, err
 		}
 		if !exists {
-			return BOMNode{}, fmt.Sprintf("part %s not found in parts table", id), false, nil
+			return BOMNode{}, fmt.Sprintf("item %s not found in Xero", id), false, nil
 		}
 		if displayName == "" {
 			displayName = name
 		}
 
-		// supplier?
-		okSupp, err := hasSupplier(ctx, id)
+		// purchasable leaf if it has a contact mapping
+		okContact, err := hasContact(ctx, id)
 		if err != nil {
 			return BOMNode{}, "", false, err
 		}
-		if okSupp {
-			// leaf
+		if okContact {
 			return BOMNode{
 				PartID:     id,
 				Name:       displayName,
@@ -119,19 +113,19 @@ func ResolveInvoiceBOM(ctx context.Context, dbURL string, roots []RootItem, maxD
 			}, "", true, nil
 		}
 
-		// expand children
+		// expand children (from Supabase)
 		children, err := getChildren(ctx, id)
 		if err != nil {
 			return BOMNode{}, "", false, err
 		}
 		if len(children) == 0 {
-			return BOMNode{}, fmt.Sprintf("part %s has no supplier and no subcomponents", id), false, nil
+			return BOMNode{}, fmt.Sprintf("item %s has no supplier contact and no subcomponents", id), false, nil
 		}
 
 		node := BOMNode{
 			PartID:     id,
 			Name:       displayName,
-			Quantity:   qty, // shown as info (no qty input)
+			Quantity:   qty,
 			IsAssembly: true,
 		}
 		for _, pair := range children {

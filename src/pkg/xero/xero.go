@@ -133,15 +133,16 @@ func GetConnections(ctx context.Context, httpClient *http.Client, accessToken st
 	return conns, nil
 }
 
-// helper to find an existing item by Code. returns ItemID if found, empty string if not.
-func getItemIDByCode(ctx context.Context, httpClient *http.Client, accessToken, tenantID, code string) (string, error) {
-	// build where clause: Code == "CODE"
-	where := url.QueryEscape(fmt.Sprintf(`Code=="%s"`, code))
-	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Items?where=%s", where)
-
+// GetItemNameByID returns item Name for a given Xero ItemID.
+// found=false if not found.
+func GetItemNameByID(ctx context.Context, httpClient *http.Client, accessToken, tenantID, itemID string) (name string, found bool, err error) {
+	if itemID == "" {
+		return "", false, nil
+	}
+	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Items/%s", url.PathEscape(itemID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Xero-tenant-id", tenantID)
@@ -149,28 +150,69 @@ func getItemIDByCode(ctx context.Context, httpClient *http.Client, accessToken, 
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "", false, nil
+	}
+	if resp.StatusCode >= 300 {
+		return "", false, fmt.Errorf("get item by id failed: status=%d", resp.StatusCode)
+	}
+	var res struct {
+		Items []struct {
+			Name string `json:"Name"`
+		} `json:"Items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", false, err
+	}
+	if len(res.Items) == 0 {
+		return "", false, nil
+	}
+	return res.Items[0].Name, true, nil
+}
+
+// GetItemNameByCode returns item Name for a given Xero Item Code.
+// found=false if not found.
+func GetItemNameByCode(ctx context.Context, httpClient *http.Client, accessToken, tenantID, code string) (string, bool, error) {
+	if code == "" {
+		return "", false, nil
+	}
+	where := url.QueryEscape(fmt.Sprintf(`Code=="%s"`, code))
+	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Items?where=%s", where)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Xero-tenant-id", tenantID)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", false, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		return "", fmt.Errorf("get item by code failed: status=%d", resp.StatusCode)
+		return "", false, fmt.Errorf("get item by code failed: status=%d", resp.StatusCode)
 	}
-
 	var res struct {
 		Items []struct {
-			ItemID string `json:"ItemID"`
-			Code   string `json:"Code"`
+			Name string `json:"Name"`
+			Code string `json:"Code"`
 		} `json:"Items"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if len(res.Items) == 0 {
-		return "", nil
+		return "", false, nil
 	}
-	// return first match
-	return res.Items[0].ItemID, nil
+	return res.Items[0].Name, true, nil
 }
 
 // SyncPartsToXero posts a minimal Items payload to Xero.
@@ -208,7 +250,7 @@ func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, 
 		}
 
 		// attempt to find existing item by Code so we can update instead of recreating
-		if id, err := getItemIDByCode(ctx, httpClient, accessToken, tenantID, p.PartID); err == nil && id != "" {
+		if id, err := GetItemIDByCode(ctx, httpClient, accessToken, tenantID, p.PartID); err == nil && id != "" {
 			ip.ItemID = id
 		}
 		out = append(out, ip)
@@ -360,18 +402,60 @@ type POItem struct {
 	Description string `json:"Description,omitempty"`
 }
 
-// CreatePurchaseOrder posts a minimal PurchaseOrder payload to Xero for the given supplier.
-// supplierName is used as Contact.Name and ContactNumber (so Xero can identify the contact).
-func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessToken, tenantID, supplierName string, items []POItem) (string, error) {
+// GetContactIDByAccountNumber looks up a Xero ContactID by AccountNumber.
+// Returns empty string if not found.
+func GetContactIDByAccountNumber(ctx context.Context, httpClient *http.Client, accessToken, tenantID, accountNumber string) (string, error) {
+	if accountNumber == "" {
+		return "", nil
+	}
+	where := url.QueryEscape(fmt.Sprintf(`AccountNumber=="%s"`, accountNumber))
+	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Contacts?where=%s", where)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Xero-tenant-id", tenantID)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("contacts lookup failed: status=%d", resp.StatusCode)
+	}
+
+	var out struct {
+		Contacts []struct {
+			ContactID string `json:"ContactID"`
+		} `json:"Contacts"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	if len(out.Contacts) == 0 {
+		return "", nil
+	}
+	return out.Contacts[0].ContactID, nil
+}
+
+// CreatePurchaseOrder posts a minimal PurchaseOrder payload to Xero using ContactID.
+// contactID must be the Xero Contacts.ContactID GUID.
+func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessToken, tenantID, contactID string, items []POItem) (string, error) {
 	if len(items) == 0 {
 		return "", fmt.Errorf("no items")
+	}
+	if contactID == "" {
+		return "", fmt.Errorf("contact id missing")
 	}
 	payload := map[string]interface{}{
 		"PurchaseOrders": []map[string]interface{}{
 			{
 				"Contact": map[string]string{
-					"Name":          supplierName,
-					"ContactNumber": supplierName, // provide an identifier Xero accepts
+					"ContactID": contactID,
 				},
 				"LineItems": items,
 				"Status":    "AUTHORISED",
@@ -433,7 +517,7 @@ func SyncSuppliersToXero(ctx context.Context, httpClient *http.Client, accessTok
 	}
 	type contactPayload struct {
 		Name          string         `json:"Name,omitempty"`
-		ContactNumber string         `json:"ContactNumber,omitempty"`
+		ContactNumber string         `json:"AccountNumber,omitempty"`
 		EmailAddress  string         `json:"EmailAddress,omitempty"`
 		Phones        []phonePayload `json:"Phones,omitempty"`
 	}
@@ -479,4 +563,42 @@ func SyncSuppliersToXero(ctx context.Context, httpClient *http.Client, accessTok
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
+}
+
+// helper to find an existing item by Code. returns ItemID if found, empty string if not.
+// GetItemIDByCode returns Xero ItemID for a given item Code (empty if not found).
+func GetItemIDByCode(ctx context.Context, httpClient *http.Client, accessToken, tenantID, code string) (string, error) {
+	where := url.QueryEscape(fmt.Sprintf(`Code=="%s"`, code))
+	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Items?where=%s", where)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Xero-tenant-id", tenantID)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("get item by code failed: status=%d", resp.StatusCode)
+	}
+	var res struct {
+		Items []struct {
+			ItemID string `json:"ItemID"`
+			Code   string `json:"Code"`
+		} `json:"Items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", err
+	}
+	if len(res.Items) == 0 {
+		return "", nil
+	}
+	return res.Items[0].ItemID, nil
 }
