@@ -399,8 +399,9 @@ func (h *Handler) createPurchaseOrdersHandler(w http.ResponseWriter, r *http.Req
 	var allListIDs []int
 	created := 0
 
-	// cache AccountNumber -> ContactID within this request to avoid repeat lookups
-	contactIDCache := make(map[string]string)
+	// caches to reduce Xero calls
+	contactIDCache := make(map[string]string) // AccountNumber -> ContactID
+	nameCache := make(map[string]string)      // ItemCode -> Name
 
 	for accountNumber, items := range grouped { // accountNumber is Xero Contact.AccountNumber
 		// resolve ContactID once per accountNumber
@@ -423,16 +424,26 @@ func (h *Handler) createPurchaseOrdersHandler(w http.ResponseWriter, r *http.Req
 
 		var poItems []xero.POItem
 		for _, it := range items {
+			code := it.ItemID // ItemID in DB = Xero Item Code
+			desc := code
+			if nm, ok := nameCache[code]; ok && nm != "" {
+				desc = nm
+			} else {
+				if nm, ok, err := xero.GetItemNameByCode(ctx, h.client, found.AccessToken, found.TenantID, code); err == nil && ok && nm != "" {
+					nameCache[code] = nm
+					desc = nm
+				}
+			}
+
 			poItems = append(poItems, xero.POItem{
-				ItemCode:    it.ItemID, // Item Code
+				ItemCode:    code,
 				Quantity:    it.Quantity,
-				Description: it.ItemID, // minimal
+				Description: desc, // use Name where possible
 			})
 			allListIDs = append(allListIDs, it.ListIDs...)
 		}
 
-		_, err := xero.CreatePurchaseOrder(ctx, h.client, found.AccessToken, found.TenantID, contactID, poItems)
-		if err != nil {
+		if _, err := xero.CreatePurchaseOrder(ctx, h.client, found.AccessToken, found.TenantID, contactID, poItems); err != nil {
 			utils.SetCookie(w, r, "xero_sync_msg", "Failed to create PO for contact "+accountNumber+": "+err.Error(), time.Now().Add(5*time.Minute))
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
