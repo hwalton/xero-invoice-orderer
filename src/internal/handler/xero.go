@@ -287,18 +287,14 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert Codes -> ItemIDs via Xero
+	// Build roots using Xero Item Codes directly
 	roots := make([]service.RootItem, 0, len(itemLines))
 	for _, ln := range itemLines {
 		if ln.ItemCode == "" || ln.Quantity <= 0 {
 			continue
 		}
-		itemID, err := xero.GetItemIDByCode(ctx, h.client, found.AccessToken, found.TenantID, ln.ItemCode)
-		if err != nil || itemID == "" {
-			continue
-		}
 		roots = append(roots, service.RootItem{
-			PartID:   itemID, // now ItemID
+			PartID:   ln.ItemCode, // use Code as the item_id everywhere
 			Name:     ln.Name,
 			Quantity: ln.Quantity,
 		})
@@ -309,7 +305,7 @@ func (h *Handler) getInvoiceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve BOM (maxDepth 12) using Xero items + Supabase relationships
+	// Resolve BOM (maxDepth 12) using Xero (by Code) + Supabase relationships
 	bom, errMsg, err := service.ResolveInvoiceBOM(ctx, h.dbURL, roots, 12, h.client, found.AccessToken, found.TenantID)
 	if err != nil {
 		http.Error(w, "BOM resolution failed: "+err.Error(), http.StatusInternalServerError)
@@ -402,20 +398,42 @@ func (h *Handler) createPurchaseOrdersHandler(w http.ResponseWriter, r *http.Req
 	// 3) create POs per contact and collect list IDs to mark ordered
 	var allListIDs []int
 	created := 0
-	for contactID, items := range grouped { // contactID is Xero AccountNumber
+
+	// cache AccountNumber -> ContactID within this request to avoid repeat lookups
+	contactIDCache := make(map[string]string)
+
+	for accountNumber, items := range grouped { // accountNumber is Xero Contact.AccountNumber
+		// resolve ContactID once per accountNumber
+		contactID := contactIDCache[accountNumber]
+		if contactID == "" {
+			var err error
+			contactID, err = xero.GetContactIDByAccountNumber(ctx, h.client, found.AccessToken, found.TenantID, accountNumber)
+			if err != nil {
+				utils.SetCookie(w, r, "xero_sync_msg", "Contact lookup failed for "+accountNumber+": "+err.Error(), time.Now().Add(5*time.Minute))
+				http.Redirect(w, r, "/", http.StatusSeeOther)
+				return
+			}
+			if contactID == "" {
+				utils.SetCookie(w, r, "xero_sync_msg", "No ContactID found for "+accountNumber+" in Xero", time.Now().Add(5*time.Minute))
+				http.Redirect(w, r, "/", http.StatusSeeOther)
+				return
+			}
+			contactIDCache[accountNumber] = contactID
+		}
+
 		var poItems []xero.POItem
 		for _, it := range items {
 			poItems = append(poItems, xero.POItem{
-				ItemCode:    it.ItemID, // ItemID, but Xero PO LineItems expects ItemCode or ItemID? Using ItemCode field supports GUID too.
+				ItemCode:    it.ItemID, // Item Code
 				Quantity:    it.Quantity,
-				Description: it.ItemID,
+				Description: it.ItemID, // minimal
 			})
 			allListIDs = append(allListIDs, it.ListIDs...)
 		}
 
 		_, err := xero.CreatePurchaseOrder(ctx, h.client, found.AccessToken, found.TenantID, contactID, poItems)
 		if err != nil {
-			utils.SetCookie(w, r, "xero_sync_msg", "Failed to create PO for contact "+contactID+": "+err.Error(), time.Now().Add(5*time.Minute))
+			utils.SetCookie(w, r, "xero_sync_msg", "Failed to create PO for contact "+accountNumber+": "+err.Error(), time.Now().Add(5*time.Minute))
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}

@@ -27,7 +27,7 @@ type RootItem struct {
 
 // ResolveInvoiceBOM expands invoice roots into a tree of purchasable leaves.
 // Uses Xero for item metadata; Supabase for relationships and item->contact mapping.
-// item IDs must be Xero ItemID; contacts are Xero AccountNumber in items_contacts.
+// item IDs must be Xero Item Code; contacts are Xero AccountNumber in items_contacts.
 func ResolveInvoiceBOM(ctx context.Context, dbURL string, roots []RootItem, maxDepth int, httpClient *http.Client, accessToken, tenantID string) ([]BOMNode, string, error) {
 	if dbURL == "" {
 		return nil, "", fmt.Errorf("db url missing")
@@ -39,8 +39,8 @@ func ResolveInvoiceBOM(ctx context.Context, dbURL string, roots []RootItem, maxD
 	defer pool.Close()
 
 	// helpers
-	getItem := func(ctx context.Context, id string) (name string, exists bool, err error) {
-		name, ok, err := xero.GetItemNameByID(ctx, httpClient, accessToken, tenantID, id)
+	getItem := func(ctx context.Context, code string) (name string, exists bool, err error) {
+		name, ok, err := xero.GetItemNameByCode(ctx, httpClient, accessToken, tenantID, code)
 		if err != nil {
 			return "", false, err
 		}

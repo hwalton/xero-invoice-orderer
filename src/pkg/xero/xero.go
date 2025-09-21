@@ -174,6 +174,47 @@ func GetItemNameByID(ctx context.Context, httpClient *http.Client, accessToken, 
 	return res.Items[0].Name, true, nil
 }
 
+// GetItemNameByCode returns item Name for a given Xero Item Code.
+// found=false if not found.
+func GetItemNameByCode(ctx context.Context, httpClient *http.Client, accessToken, tenantID, code string) (string, bool, error) {
+	if code == "" {
+		return "", false, nil
+	}
+	where := url.QueryEscape(fmt.Sprintf(`Code=="%s"`, code))
+	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Items?where=%s", where)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Xero-tenant-id", tenantID)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		return "", false, fmt.Errorf("get item by code failed: status=%d", resp.StatusCode)
+	}
+	var res struct {
+		Items []struct {
+			Name string `json:"Name"`
+			Code string `json:"Code"`
+		} `json:"Items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", false, err
+	}
+	if len(res.Items) == 0 {
+		return "", false, nil
+	}
+	return res.Items[0].Name, true, nil
+}
+
 // SyncPartsToXero posts a minimal Items payload to Xero.
 // Keeps payload minimal (Code, Name, Description, SalesDetails.UnitPrice) to avoid account/tax validation.
 // Uses upsert behavior: if an item with the same Code exists it will be updated, otherwise created.
@@ -361,17 +402,60 @@ type POItem struct {
 	Description string `json:"Description,omitempty"`
 }
 
-// CreatePurchaseOrder posts a minimal PurchaseOrder payload to Xero for the given supplier.
-// supplierAccountNumber is the Xero Contact.AccountNumber identifier to target an existing Contact.
-func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessToken, tenantID, supplierAccountNumber string, items []POItem) (string, error) {
+// GetContactIDByAccountNumber looks up a Xero ContactID by AccountNumber.
+// Returns empty string if not found.
+func GetContactIDByAccountNumber(ctx context.Context, httpClient *http.Client, accessToken, tenantID, accountNumber string) (string, error) {
+	if accountNumber == "" {
+		return "", nil
+	}
+	where := url.QueryEscape(fmt.Sprintf(`AccountNumber=="%s"`, accountNumber))
+	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Contacts?where=%s", where)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Xero-tenant-id", tenantID)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("contacts lookup failed: status=%d", resp.StatusCode)
+	}
+
+	var out struct {
+		Contacts []struct {
+			ContactID string `json:"ContactID"`
+		} `json:"Contacts"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	if len(out.Contacts) == 0 {
+		return "", nil
+	}
+	return out.Contacts[0].ContactID, nil
+}
+
+// CreatePurchaseOrder posts a minimal PurchaseOrder payload to Xero using ContactID.
+// contactID must be the Xero Contacts.ContactID GUID.
+func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessToken, tenantID, contactID string, items []POItem) (string, error) {
 	if len(items) == 0 {
 		return "", fmt.Errorf("no items")
+	}
+	if contactID == "" {
+		return "", fmt.Errorf("contact id missing")
 	}
 	payload := map[string]interface{}{
 		"PurchaseOrders": []map[string]interface{}{
 			{
 				"Contact": map[string]string{
-					"AccountNumber": supplierAccountNumber, // identify Contact by AccountNumber
+					"ContactID": contactID,
 				},
 				"LineItems": items,
 				"Status":    "AUTHORISED",
