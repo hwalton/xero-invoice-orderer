@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"html/template"
-	"io"
 	"net/http"
 	"time"
 
@@ -29,7 +28,7 @@ func (h *Handler) loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	// fallback: embedded raw file (if templates not provided)
 	if b, err := web.TemplatesFS.ReadFile("templates/login.html"); err == nil {
-		_, _ = io.WriteString(w, string(b))
+		_, _ = w.Write(b)
 		return
 	}
 	http.Error(w, "template error", http.StatusInternalServerError)
