@@ -7,11 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
+	// "io"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
+	// "strconv"
 	"strings"
 	"time"
 
@@ -463,319 +463,319 @@ func (h *Handler) createPurchaseOrdersHandler(w http.ResponseWriter, r *http.Req
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// dumpContactsHandler fetches all Contacts from Xero (pages) and writes the combined
-// JSON to contact.json in the repo root (development helper).
-func (h *Handler) dumpContactsHandler(w http.ResponseWriter, r *http.Request) {
-	if h.auth != nil {
-		r = mid.EnsureUserIDInContext(r, h.auth)
-	}
-	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
-	if ownerID == "" {
-		http.Error(w, "owner id missing", http.StatusUnauthorized)
-		return
-	}
+// // dumpContactsHandler fetches all Contacts from Xero (pages) and writes the combined
+// // JSON to contact.json in the repo root (development helper).
+// func (h *Handler) dumpContactsHandler(w http.ResponseWriter, r *http.Request) {
+// 	if h.auth != nil {
+// 		r = mid.EnsureUserIDInContext(r, h.auth)
+// 	}
+// 	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
+// 	if ownerID == "" {
+// 		http.Error(w, "owner id missing", http.StatusUnauthorized)
+// 		return
+// 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
+// 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+// 	defer cancel()
 
-	// load Xero connection for the owner
-	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
-	if err != nil {
-		http.Error(w, "failed to load connections: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if len(conns) == 0 {
-		http.Error(w, "no xero connection found for owner", http.StatusNotFound)
-		return
-	}
-	found := &conns[0]
+// 	// load Xero connection for the owner
+// 	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
+// 	if err != nil {
+// 		http.Error(w, "failed to load connections: "+err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 	if len(conns) == 0 {
+// 		http.Error(w, "no xero connection found for owner", http.StatusNotFound)
+// 		return
+// 	}
+// 	found := &conns[0]
 
-	// refresh token if near expiry
-	now := time.Now().UTC()
-	if found.ExpiresAt <= now.Unix()+60 {
-		clientID := os.Getenv("XERO_CLIENT_ID")
-		clientSecret := os.Getenv("XERO_CLIENT_SECRET")
-		tr, err := xero.RefreshToken(ctx, h.client, clientID, clientSecret, found.RefreshToken)
-		if err != nil {
-			http.Error(w, "refresh token failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if err := service.UpsertConnection(ctx, h.dbURL, ownerID, found.TenantID, tr.AccessToken, tr.RefreshToken, tr.ExpiresIn); err != nil {
-			http.Error(w, "failed to persist refreshed token: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		found.AccessToken = tr.AccessToken
-		secs := tr.ExpiresIn
-		if secs == 0 {
-			secs = 3600
-		}
-		found.ExpiresAt = time.Now().Unix() + secs
-	}
+// 	// refresh token if near expiry
+// 	now := time.Now().UTC()
+// 	if found.ExpiresAt <= now.Unix()+60 {
+// 		clientID := os.Getenv("XERO_CLIENT_ID")
+// 		clientSecret := os.Getenv("XERO_CLIENT_SECRET")
+// 		tr, err := xero.RefreshToken(ctx, h.client, clientID, clientSecret, found.RefreshToken)
+// 		if err != nil {
+// 			http.Error(w, "refresh token failed: "+err.Error(), http.StatusInternalServerError)
+// 			return
+// 		}
+// 		if err := service.UpsertConnection(ctx, h.dbURL, ownerID, found.TenantID, tr.AccessToken, tr.RefreshToken, tr.ExpiresIn); err != nil {
+// 			http.Error(w, "failed to persist refreshed token: "+err.Error(), http.StatusInternalServerError)
+// 			return
+// 		}
+// 		found.AccessToken = tr.AccessToken
+// 		secs := tr.ExpiresIn
+// 		if secs == 0 {
+// 			secs = 3600
+// 		}
+// 		found.ExpiresAt = time.Now().Unix() + secs
+// 	}
 
-	// fetch contacts page-by-page and aggregate
-	allContacts := make([]interface{}, 0)
-	client := h.client
-	if client == nil {
-		client = http.DefaultClient
-	}
+// 	// fetch contacts page-by-page and aggregate
+// 	allContacts := make([]interface{}, 0)
+// 	client := h.client
+// 	if client == nil {
+// 		client = http.DefaultClient
+// 	}
 
-	for page := 1; page <= 50; page++ { // safety cap at 50 pages
-		u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Contacts?page=%d", page)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		if err != nil {
-			http.Error(w, "failed to build request: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		req.Header.Set("Authorization", "Bearer "+found.AccessToken)
-		req.Header.Set("Xero-tenant-id", found.TenantID)
-		req.Header.Set("Accept", "application/json")
+// 	for page := 1; page <= 50; page++ { // safety cap at 50 pages
+// 		u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Contacts?page=%d", page)
+// 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+// 		if err != nil {
+// 			http.Error(w, "failed to build request: "+err.Error(), http.StatusInternalServerError)
+// 			return
+// 		}
+// 		req.Header.Set("Authorization", "Bearer "+found.AccessToken)
+// 		req.Header.Set("Xero-tenant-id", found.TenantID)
+// 		req.Header.Set("Accept", "application/json")
 
-		resp, err := client.Do(req)
-		if err != nil {
-			http.Error(w, "contacts fetch failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if resp.Body != nil {
-			defer resp.Body.Close()
-		}
-		if resp.StatusCode >= 300 {
-			// read body for debugging
-			var b []byte
-			_ = json.NewDecoder(resp.Body).Decode(&b) // best-effort
-			http.Error(w, fmt.Sprintf("contacts fetch failed: status=%d", resp.StatusCode), http.StatusInternalServerError)
-			return
-		}
+// 		resp, err := client.Do(req)
+// 		if err != nil {
+// 			http.Error(w, "contacts fetch failed: "+err.Error(), http.StatusInternalServerError)
+// 			return
+// 		}
+// 		if resp.Body != nil {
+// 			defer resp.Body.Close()
+// 		}
+// 		if resp.StatusCode >= 300 {
+// 			// read body for debugging
+// 			var b []byte
+// 			_ = json.NewDecoder(resp.Body).Decode(&b) // best-effort
+// 			http.Error(w, fmt.Sprintf("contacts fetch failed: status=%d", resp.StatusCode), http.StatusInternalServerError)
+// 			return
+// 		}
 
-		var pageShape struct {
-			Contacts []interface{} `json:"Contacts"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&pageShape); err != nil {
-			http.Error(w, "failed to decode contacts response: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if len(pageShape.Contacts) == 0 {
-			break
-		}
-		allContacts = append(allContacts, pageShape.Contacts...)
-		// continue to next page
-	}
+// 		var pageShape struct {
+// 			Contacts []interface{} `json:"Contacts"`
+// 		}
+// 		if err := json.NewDecoder(resp.Body).Decode(&pageShape); err != nil {
+// 			http.Error(w, "failed to decode contacts response: "+err.Error(), http.StatusInternalServerError)
+// 			return
+// 		}
+// 		if len(pageShape.Contacts) == 0 {
+// 			break
+// 		}
+// 		allContacts = append(allContacts, pageShape.Contacts...)
+// 		// continue to next page
+// 	}
 
-	out := map[string]interface{}{
-		"Contacts":  allContacts,
-		"FetchedAt": time.Now().UTC().Format(time.RFC3339),
-	}
+// 	out := map[string]interface{}{
+// 		"Contacts":  allContacts,
+// 		"FetchedAt": time.Now().UTC().Format(time.RFC3339),
+// 	}
 
-	b, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		http.Error(w, "failed to marshal contacts: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+// 	b, err := json.MarshalIndent(out, "", "  ")
+// 	if err != nil {
+// 		http.Error(w, "failed to marshal contacts: "+err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
 
-	if err := os.WriteFile("contact.json", b, 0644); err != nil {
-		http.Error(w, "failed to write contact.json: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+// 	if err := os.WriteFile("contact.json", b, 0644); err != nil {
+// 		http.Error(w, "failed to write contact.json: "+err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte(fmt.Sprintf("wrote %d contacts to contact.json\n", len(allContacts))))
-}
+// 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+// 	_, _ = w.Write([]byte(fmt.Sprintf("wrote %d contacts to contact.json\n", len(allContacts))))
+// }
 
-// dumpItemsHandler fetches all Items from Xero (pages) and writes the combined
-// JSON to parts.json (development helper).
-func (h *Handler) dumpItemsHandler(w http.ResponseWriter, r *http.Request) {
-	if h.auth != nil {
-		r = mid.EnsureUserIDInContext(r, h.auth)
-	}
-	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
-	if ownerID == "" {
-		http.Error(w, "owner id missing", http.StatusUnauthorized)
-		return
-	}
+// // dumpItemsHandler fetches all Items from Xero (pages) and writes the combined
+// // JSON to parts.json (development helper).
+// func (h *Handler) dumpItemsHandler(w http.ResponseWriter, r *http.Request) {
+// 	if h.auth != nil {
+// 		r = mid.EnsureUserIDInContext(r, h.auth)
+// 	}
+// 	ownerID, _ := r.Context().Value(mid.CtxUserID).(string)
+// 	if ownerID == "" {
+// 		http.Error(w, "owner id missing", http.StatusUnauthorized)
+// 		return
+// 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
+// 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+// 	defer cancel()
 
-	// load Xero connection for the owner
-	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
-	if err != nil {
-		http.Error(w, "failed to load connections: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if len(conns) == 0 {
-		http.Error(w, "no xero connection found for owner", http.StatusNotFound)
-		return
-	}
-	found := &conns[0]
+// 	// load Xero connection for the owner
+// 	conns, err := service.GetConnectionsForOwner(ctx, h.dbURL, ownerID)
+// 	if err != nil {
+// 		http.Error(w, "failed to load connections: "+err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 	if len(conns) == 0 {
+// 		http.Error(w, "no xero connection found for owner", http.StatusNotFound)
+// 		return
+// 	}
+// 	found := &conns[0]
 
-	// refresh token if near expiry
-	now := time.Now().UTC()
-	if found.ExpiresAt <= now.Unix()+60 {
-		clientID := os.Getenv("XERO_CLIENT_ID")
-		clientSecret := os.Getenv("XERO_CLIENT_SECRET")
-		tr, err := xero.RefreshToken(ctx, h.client, clientID, clientSecret, found.RefreshToken)
-		if err != nil {
-			http.Error(w, "refresh token failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if err := service.UpsertConnection(ctx, h.dbURL, ownerID, found.TenantID, tr.AccessToken, tr.RefreshToken, tr.ExpiresIn); err != nil {
-			http.Error(w, "failed to persist refreshed token: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		found.AccessToken = tr.AccessToken
-		secs := tr.ExpiresIn
-		if secs == 0 {
-			secs = 3600
-		}
-		found.ExpiresAt = time.Now().Unix() + secs
-	}
+// 	// refresh token if near expiry
+// 	now := time.Now().UTC()
+// 	if found.ExpiresAt <= now.Unix()+60 {
+// 		clientID := os.Getenv("XERO_CLIENT_ID")
+// 		clientSecret := os.Getenv("XERO_CLIENT_SECRET")
+// 		tr, err := xero.RefreshToken(ctx, h.client, clientID, clientSecret, found.RefreshToken)
+// 		if err != nil {
+// 			http.Error(w, "refresh token failed: "+err.Error(), http.StatusInternalServerError)
+// 			return
+// 		}
+// 		if err := service.UpsertConnection(ctx, h.dbURL, ownerID, found.TenantID, tr.AccessToken, tr.RefreshToken, tr.ExpiresIn); err != nil {
+// 			http.Error(w, "failed to persist refreshed token: "+err.Error(), http.StatusInternalServerError)
+// 			return
+// 		}
+// 		found.AccessToken = tr.AccessToken
+// 		secs := tr.ExpiresIn
+// 		if secs == 0 {
+// 			secs = 3600
+// 		}
+// 		found.ExpiresAt = time.Now().Unix() + secs
+// 	}
 
-	// fetch items page-by-page and aggregate with rate-limit retry
-	allItems := make([]interface{}, 0)
-	seen := make(map[string]struct{}) // track unique ItemID/Code
+// 	// fetch items page-by-page and aggregate with rate-limit retry
+// 	allItems := make([]interface{}, 0)
+// 	seen := make(map[string]struct{}) // track unique ItemID/Code
 
-	// ensure http client is set (fixes "undeclared client")
-	client := h.client
-	if client == nil {
-		client = http.DefaultClient
-	}
+// 	// ensure http client is set (fixes "undeclared client")
+// 	client := h.client
+// 	if client == nil {
+// 		client = http.DefaultClient
+// 	}
 
-	const maxPages = 1
-	const maxAttempts = 5
+// 	const maxPages = 1
+// 	const maxAttempts = 5
 
-	for page := 1; page <= maxPages; page++ {
-		var pageShape struct {
-			Items []interface{} `json:"Items"`
-		}
+// 	for page := 1; page <= maxPages; page++ {
+// 		var pageShape struct {
+// 			Items []interface{} `json:"Items"`
+// 		}
 
-		// attempt with retries on 429
-		attempt := 0
-		for {
-			attempt++
-			u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Items?page=%d", page)
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-			if err != nil {
-				http.Error(w, "failed to build request: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			req.Header.Set("Authorization", "Bearer "+found.AccessToken)
-			req.Header.Set("Xero-tenant-id", found.TenantID)
-			req.Header.Set("Accept", "application/json")
+// 		// attempt with retries on 429
+// 		attempt := 0
+// 		for {
+// 			attempt++
+// 			u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Items?page=%d", page)
+// 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+// 			if err != nil {
+// 				http.Error(w, "failed to build request: "+err.Error(), http.StatusInternalServerError)
+// 				return
+// 			}
+// 			req.Header.Set("Authorization", "Bearer "+found.AccessToken)
+// 			req.Header.Set("Xero-tenant-id", found.TenantID)
+// 			req.Header.Set("Accept", "application/json")
 
-			resp, err := client.Do(req)
-			if err != nil {
-				// network error, retry a few times
-				if attempt >= maxAttempts {
-					http.Error(w, "items fetch failed: "+err.Error(), http.StatusInternalServerError)
-					return
-				}
-				// small backoff then retry
-				backoff := time.Duration(1<<attempt) * time.Second
-				select {
-				case <-time.After(backoff):
-					continue
-				case <-ctx.Done():
-					http.Error(w, "request cancelled", http.StatusRequestTimeout)
-					return
-				}
-			}
+// 			resp, err := client.Do(req)
+// 			if err != nil {
+// 				// network error, retry a few times
+// 				if attempt >= maxAttempts {
+// 					http.Error(w, "items fetch failed: "+err.Error(), http.StatusInternalServerError)
+// 					return
+// 				}
+// 				// small backoff then retry
+// 				backoff := time.Duration(1<<attempt) * time.Second
+// 				select {
+// 				case <-time.After(backoff):
+// 					continue
+// 				case <-ctx.Done():
+// 					http.Error(w, "request cancelled", http.StatusRequestTimeout)
+// 					return
+// 				}
+// 			}
 
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
+// 			bodyBytes, _ := io.ReadAll(resp.Body)
+// 			resp.Body.Close()
 
-			if resp.StatusCode == http.StatusTooManyRequests {
-				// Xero rate limited. Respect Retry-After if provided.
-				retryAfter := 0
-				if ra := resp.Header.Get("Retry-After"); ra != "" {
-					if secs, perr := strconv.Atoi(ra); perr == nil {
-						retryAfter = secs
-					}
-				}
-				if retryAfter <= 0 {
-					// exponential backoff with small jitter
-					retryAfter = int((1 << attempt))
-				}
-				if attempt >= maxAttempts {
-					http.Error(w, fmt.Sprintf("items fetch failed: status=429 body=%s", string(bodyBytes)), http.StatusTooManyRequests)
-					return
-				}
-				// wait respecting context
-				wait := time.Duration(retryAfter) * time.Second
-				select {
-				case <-time.After(wait):
-					continue
-				case <-ctx.Done():
-					http.Error(w, "request cancelled", http.StatusRequestTimeout)
-					return
-				}
-			}
+// 			if resp.StatusCode == http.StatusTooManyRequests {
+// 				// Xero rate limited. Respect Retry-After if provided.
+// 				retryAfter := 0
+// 				if ra := resp.Header.Get("Retry-After"); ra != "" {
+// 					if secs, perr := strconv.Atoi(ra); perr == nil {
+// 						retryAfter = secs
+// 					}
+// 				}
+// 				if retryAfter <= 0 {
+// 					// exponential backoff with small jitter
+// 					retryAfter = int((1 << attempt))
+// 				}
+// 				if attempt >= maxAttempts {
+// 					http.Error(w, fmt.Sprintf("items fetch failed: status=429 body=%s", string(bodyBytes)), http.StatusTooManyRequests)
+// 					return
+// 				}
+// 				// wait respecting context
+// 				wait := time.Duration(retryAfter) * time.Second
+// 				select {
+// 				case <-time.After(wait):
+// 					continue
+// 				case <-ctx.Done():
+// 					http.Error(w, "request cancelled", http.StatusRequestTimeout)
+// 					return
+// 				}
+// 			}
 
-			if resp.StatusCode >= 300 {
-				// surface body for debugging
-				http.Error(w, fmt.Sprintf("items fetch failed: status=%d body=%s", resp.StatusCode, string(bodyBytes)), http.StatusInternalServerError)
-				return
-			}
+// 			if resp.StatusCode >= 300 {
+// 				// surface body for debugging
+// 				http.Error(w, fmt.Sprintf("items fetch failed: status=%d body=%s", resp.StatusCode, string(bodyBytes)), http.StatusInternalServerError)
+// 				return
+// 			}
 
-			// decode page
-			if err := json.Unmarshal(bodyBytes, &pageShape); err != nil {
-				http.Error(w, "failed to decode items response: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			break
-		} // retry loop
+// 			// decode page
+// 			if err := json.Unmarshal(bodyBytes, &pageShape); err != nil {
+// 				http.Error(w, "failed to decode items response: "+err.Error(), http.StatusInternalServerError)
+// 				return
+// 			}
+// 			break
+// 		} // retry loop
 
-		if len(pageShape.Items) == 0 {
-			break
-		}
+// 		if len(pageShape.Items) == 0 {
+// 			break
+// 		}
 
-		// dedupe items by ItemID or Code before appending
-		for _, it := range pageShape.Items {
-			m, ok := it.(map[string]interface{})
-			if !ok {
-				// unknown shape, append to result
-				allItems = append(allItems, it)
-				continue
-			}
+// 		// dedupe items by ItemID or Code before appending
+// 		for _, it := range pageShape.Items {
+// 			m, ok := it.(map[string]interface{})
+// 			if !ok {
+// 				// unknown shape, append to result
+// 				allItems = append(allItems, it)
+// 				continue
+// 			}
 
-			var key string
-			if v, ok := m["ItemID"].(string); ok && v != "" {
-				key = "id:" + v
-			} else if v, ok := m["Code"].(string); ok && v != "" {
-				key = "code:" + v
-			} else {
-				// fallback: try Name (less reliable)
-				if v, ok := m["Name"].(string); ok && v != "" {
-					key = "name:" + v
-				}
-			}
+// 			var key string
+// 			if v, ok := m["ItemID"].(string); ok && v != "" {
+// 				key = "id:" + v
+// 			} else if v, ok := m["Code"].(string); ok && v != "" {
+// 				key = "code:" + v
+// 			} else {
+// 				// fallback: try Name (less reliable)
+// 				if v, ok := m["Name"].(string); ok && v != "" {
+// 					key = "name:" + v
+// 				}
+// 			}
 
-			if key == "" {
-				allItems = append(allItems, it)
-				continue
-			}
-			if _, found := seen[key]; found {
-				continue
-			}
-			seen[key] = struct{}{}
-			allItems = append(allItems, it)
-		}
-	}
+// 			if key == "" {
+// 				allItems = append(allItems, it)
+// 				continue
+// 			}
+// 			if _, found := seen[key]; found {
+// 				continue
+// 			}
+// 			seen[key] = struct{}{}
+// 			allItems = append(allItems, it)
+// 		}
+// 	}
 
-	out := map[string]interface{}{
-		"Items":     allItems,
-		"FetchedAt": time.Now().UTC().Format(time.RFC3339),
-	}
+// 	out := map[string]interface{}{
+// 		"Items":     allItems,
+// 		"FetchedAt": time.Now().UTC().Format(time.RFC3339),
+// 	}
 
-	b, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		http.Error(w, "failed to marshal items: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+// 	b, err := json.MarshalIndent(out, "", "  ")
+// 	if err != nil {
+// 		http.Error(w, "failed to marshal items: "+err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
 
-	if err := os.WriteFile("items.json", b, 0644); err != nil {
-		http.Error(w, "failed to write items.json: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+// 	if err := os.WriteFile("items.json", b, 0644); err != nil {
+// 		http.Error(w, "failed to write items.json: "+err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte(fmt.Sprintf("wrote %d items to items.json\n", len(allItems))))
-}
+// 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+// 	_, _ = w.Write([]byte(fmt.Sprintf("wrote %d items to items.json\n", len(allItems))))
+// }
