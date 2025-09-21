@@ -42,7 +42,7 @@
                 {{ if .Name }} - <span class="text-gray-700">{{ .Name }}</span>{{ end }}
               </div>
               <div class="w-28 text-right tabular-nums">
-                {{ printf "%.0f" .Quantity }}
+                <span class="{{ if .IsAssembly }}font-semibold{{ end }}">{{ printf "%.0f" .Quantity }}</span>
               </div>
             </div>
             {{ if .Children }}
@@ -137,7 +137,7 @@
                <!-- column headers -->
                <div class="mt-2 mb-1 flex items-center gap-3 text-xs text-gray-600">
                  <div class="flex-1"></div>
-                 <div class="w-28 text-right">
+                 <div class="w-28 text-right font-semibold">
                    Qty required<br/>(for each Assy)
                  </div>
                </div>
@@ -154,7 +154,7 @@
                <!-- column headers -->
                <div class="mt-2 mb-1 flex items-center gap-3 text-xs text-gray-600">
                  <div class="flex-1"></div>
-                 <div class="w-28 text-right">
+                 <div class="w-28 text-right font-semibold">
                    Total Qty To Add
                  </div>
                </div>
@@ -177,7 +177,7 @@
                              min="1"
                              step="1"
                              value='{{ printf "%.0f" .Quantity }}'
-                             class="w-full input-bordered px-2 py-1"
+                             class="w-full input-bordered px-2 py-1 bg-white"
                            />
                          </div>
                        </div>
