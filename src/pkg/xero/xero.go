@@ -11,6 +11,202 @@ import (
 	"strings"
 )
 
+// Supplier represents a supplier row used when syncing contacts to Xero.
+type Supplier struct {
+	SupplierID   string `json:"supplier_id"`
+	SupplierName string `json:"supplier_name"`
+	ContactEmail string `json:"contact_email"`
+	Phone        string `json:"phone"`
+}
+
+// newJSONRequest builds an HTTP request with standard Xero headers.
+func newJSONRequest(ctx context.Context, method, u string, body []byte, accessToken, tenantID string) (*http.Request, error) {
+	var rdr io.Reader
+	if body != nil {
+		rdr = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, rdr)
+	if err != nil {
+		return nil, err
+	}
+	if accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+	}
+	if tenantID != "" {
+		req.Header.Set("Xero-tenant-id", tenantID)
+	}
+	req.Header.Set("Accept", "application/json")
+	if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return req, nil
+}
+
+// doJSON executes a request and returns status + raw body for assertions.
+func doJSON(client *http.Client, req *http.Request) (int, []byte, error) {
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, b, nil
+}
+
+// buildPOPayload constructs a minimal PO payload.
+func buildPOPayload(contactID string, items []POItem) ([]byte, error) {
+	if contactID == "" {
+		return nil, fmt.Errorf("contact id missing")
+	}
+	payload := map[string]interface{}{
+		"PurchaseOrders": []map[string]interface{}{
+			{
+				"Contact":   map[string]string{"ContactID": contactID},
+				"LineItems": items,
+				"Status":    "AUTHORISED",
+			},
+		},
+	}
+	return json.Marshal(payload)
+}
+
+// buildItemsUpsertPayload builds the Items upsert payload.
+// codeToItemID can be nil; if provided it maps Code -> existing ItemID.
+func buildItemsUpsertPayload(items []Part, codeToItemID func(code string) (string, error)) ([]byte, error) {
+	type simplePrice struct {
+		UnitPrice float64 `json:"UnitPrice"`
+	}
+	type itemPayload struct {
+		ItemID      string       `json:"ItemID,omitempty"`
+		Code        string       `json:"Code"`
+		Name        string       `json:"Name"`
+		Description string       `json:"Description,omitempty"`
+		Sales       *simplePrice `json:"SalesDetails,omitempty"`
+		Purchase    *simplePrice `json:"PurchaseDetails,omitempty"`
+	}
+	out := make([]itemPayload, 0, len(items))
+	for _, p := range items {
+		ip := itemPayload{
+			Code:        p.PartID,
+			Name:        p.Name,
+			Description: p.Description,
+		}
+		if p.SalesPrice > 0 {
+			ip.Sales = &simplePrice{UnitPrice: p.SalesPrice}
+		}
+		if p.CostPrice > 0 {
+			ip.Purchase = &simplePrice{UnitPrice: p.CostPrice}
+		}
+		if codeToItemID != nil {
+			if id, err := codeToItemID(p.PartID); err == nil && id != "" {
+				ip.ItemID = id
+			}
+		}
+		out = append(out, ip)
+	}
+	return json.Marshal(map[string]any{"Items": out})
+}
+
+// parse helpers
+
+func parseConnectionsJSON(b []byte) ([]Connection, error) {
+	var conns []Connection
+	if err := json.Unmarshal(b, &conns); err != nil {
+		return nil, err
+	}
+	return conns, nil
+}
+
+func parseFirstItemName(b []byte) (string, bool, error) {
+	var res struct {
+		Items []struct {
+			Name string `json:"Name"`
+		} `json:"Items"`
+	}
+	if err := json.Unmarshal(b, &res); err != nil {
+		return "", false, err
+	}
+	if len(res.Items) == 0 {
+		return "", false, nil
+	}
+	return res.Items[0].Name, true, nil
+}
+
+func parseFirstItemID(b []byte) (string, error) {
+	var res struct {
+		Items []struct {
+			ItemID string `json:"ItemID"`
+		} `json:"Items"`
+	}
+	if err := json.Unmarshal(b, &res); err != nil {
+		return "", err
+	}
+	if len(res.Items) == 0 {
+		return "", nil
+	}
+	return res.Items[0].ItemID, nil
+}
+
+func parseInvoiceID(b []byte) (string, error) {
+	var listShape struct {
+		Invoices []struct {
+			InvoiceID string `json:"InvoiceID"`
+		} `json:"Invoices"`
+	}
+	if err := json.Unmarshal(b, &listShape); err != nil {
+		return "", err
+	}
+	if len(listShape.Invoices) == 0 {
+		return "", nil
+	}
+	return listShape.Invoices[0].InvoiceID, nil
+}
+
+func parseInvoiceLines(b []byte) ([]InvoiceLine, error) {
+	var detail struct {
+		Invoices []struct {
+			LineItems []struct {
+				ItemCode    string  `json:"ItemCode"`
+				Description string  `json:"Description"`
+				Quantity    float64 `json:"Quantity"`
+				Item        struct {
+					Name string `json:"Name"`
+				} `json:"Item"`
+			} `json:"LineItems"`
+		} `json:"Invoices"`
+	}
+	if err := json.Unmarshal(b, &detail); err != nil {
+		return nil, err
+	}
+	if len(detail.Invoices) == 0 {
+		return nil, nil
+	}
+	out := make([]InvoiceLine, 0, len(detail.Invoices[0].LineItems))
+	for _, li := range detail.Invoices[0].LineItems {
+		name := li.Item.Name
+		if name == "" {
+			name = li.Description
+		}
+		out = append(out, InvoiceLine{ItemCode: li.ItemCode, Name: name, Quantity: li.Quantity})
+	}
+	return out, nil
+}
+
+func parseFirstContactID(b []byte) (string, error) {
+	var out struct {
+		Contacts []struct {
+			ContactID string `json:"ContactID"`
+		} `json:"Contacts"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return "", err
+	}
+	if len(out.Contacts) == 0 {
+		return "", nil
+	}
+	return out.Contacts[0].ContactID, nil
+}
+
 // Part mirrors parts used for syncing (minimal).
 type Part struct {
 	PartID      string  `json:"part_id"`
@@ -63,17 +259,15 @@ func ExchangeCodeForToken(ctx context.Context, httpClient *http.Client, clientID
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetBasicAuth(clientID, clientSecret)
 
-	resp, err := httpClient.Do(req)
+	status, body, err := doJSON(httpClient, req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("token exchange failed: status=%d", resp.StatusCode)
+	if status >= 300 {
+		return nil, fmt.Errorf("token exchange failed: status=%d body=%s", status, string(body))
 	}
 	var tr TokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
+	if err := json.Unmarshal(body, &tr); err != nil {
 		return nil, err
 	}
 	return &tr, nil
@@ -92,17 +286,15 @@ func RefreshToken(ctx context.Context, httpClient *http.Client, clientID, client
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetBasicAuth(clientID, clientSecret)
 
-	resp, err := httpClient.Do(req)
+	status, body, err := doJSON(httpClient, req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("refresh failed: status=%d", resp.StatusCode)
+	if status >= 300 {
+		return nil, fmt.Errorf("refresh failed: status=%d body=%s", status, string(body))
 	}
 	var tr TokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
+	if err := json.Unmarshal(body, &tr); err != nil {
 		return nil, err
 	}
 	return &tr, nil
@@ -110,27 +302,18 @@ func RefreshToken(ctx context.Context, httpClient *http.Client, clientID, client
 
 // GetConnections calls GET https://api.xero.com/connections and returns parsed connections.
 func GetConnections(ctx context.Context, httpClient *http.Client, accessToken string) ([]Connection, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.xero.com/connections", nil)
+	req, err := newJSONRequest(ctx, http.MethodGet, "https://api.xero.com/connections", nil, accessToken, "")
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
+	status, body, err := doJSON(httpClient, req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("/connections failed: status=%d", resp.StatusCode)
+	if status >= 300 {
+		return nil, fmt.Errorf("/connections failed: status=%d body=%s", status, string(body))
 	}
-	var conns []Connection
-	if err := json.NewDecoder(resp.Body).Decode(&conns); err != nil {
-		return nil, err
-	}
-	return conns, nil
+	return parseConnectionsJSON(body)
 }
 
 // GetItemNameByID returns item Name for a given Xero ItemID.
@@ -140,38 +323,21 @@ func GetItemNameByID(ctx context.Context, httpClient *http.Client, accessToken, 
 		return "", false, nil
 	}
 	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Items/%s", url.PathEscape(itemID))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := newJSONRequest(ctx, http.MethodGet, u, nil, accessToken, tenantID)
 	if err != nil {
 		return "", false, err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Xero-tenant-id", tenantID)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
+	status, body, err := doJSON(httpClient, req)
 	if err != nil {
 		return "", false, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
+	if status == http.StatusNotFound {
 		return "", false, nil
 	}
-	if resp.StatusCode >= 300 {
-		return "", false, fmt.Errorf("get item by id failed: status=%d", resp.StatusCode)
+	if status >= 300 {
+		return "", false, fmt.Errorf("get item by id failed: status=%d body=%s", status, string(body))
 	}
-	var res struct {
-		Items []struct {
-			Name string `json:"Name"`
-		} `json:"Items"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return "", false, err
-	}
-	if len(res.Items) == 0 {
-		return "", false, nil
-	}
-	return res.Items[0].Name, true, nil
+	return parseFirstItemName(body)
 }
 
 // GetItemNameByCode returns item Name for a given Xero Item Code.
@@ -182,37 +348,18 @@ func GetItemNameByCode(ctx context.Context, httpClient *http.Client, accessToken
 	}
 	where := url.QueryEscape(fmt.Sprintf(`Code=="%s"`, code))
 	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Items?where=%s", where)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := newJSONRequest(ctx, http.MethodGet, u, nil, accessToken, tenantID)
 	if err != nil {
 		return "", false, err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Xero-tenant-id", tenantID)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
+	status, body, err := doJSON(httpClient, req)
 	if err != nil {
 		return "", false, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		return "", false, fmt.Errorf("get item by code failed: status=%d", resp.StatusCode)
+	if status >= 300 {
+		return "", false, fmt.Errorf("get item by code failed: status=%d body=%s", status, string(body))
 	}
-	var res struct {
-		Items []struct {
-			Name string `json:"Name"`
-			Code string `json:"Code"`
-		} `json:"Items"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return "", false, err
-	}
-	if len(res.Items) == 0 {
-		return "", false, nil
-	}
-	return res.Items[0].Name, true, nil
+	return parseFirstItemName(body)
 }
 
 // SyncPartsToXero posts a minimal Items payload to Xero.
@@ -223,64 +370,23 @@ func SyncPartsToXero(ctx context.Context, httpClient *http.Client, accessToken, 
 	if len(items) == 0 {
 		return nil
 	}
-	type simplePrice struct {
-		UnitPrice float64 `json:"UnitPrice"`
+	codeToID := func(code string) (string, error) {
+		return GetItemIDByCode(ctx, httpClient, accessToken, tenantID, code)
 	}
-	type itemPayload struct {
-		ItemID      string       `json:"ItemID,omitempty"`
-		Code        string       `json:"Code"`
-		Name        string       `json:"Name"`
-		Description string       `json:"Description,omitempty"`
-		Sales       *simplePrice `json:"SalesDetails,omitempty"`
-		Purchase    *simplePrice `json:"PurchaseDetails,omitempty"`
-	}
-
-	out := make([]itemPayload, 0, len(items))
-	for _, p := range items {
-		ip := itemPayload{
-			Code:        p.PartID,
-			Name:        p.Name,
-			Description: p.Description,
-		}
-		if p.SalesPrice > 0 {
-			ip.Sales = &simplePrice{UnitPrice: p.SalesPrice}
-		}
-		if p.CostPrice > 0 {
-			ip.Purchase = &simplePrice{UnitPrice: p.CostPrice}
-		}
-
-		// attempt to find existing item by Code so we can update instead of recreating
-		if id, err := GetItemIDByCode(ctx, httpClient, accessToken, tenantID, p.PartID); err == nil && id != "" {
-			ip.ItemID = id
-		}
-		out = append(out, ip)
-	}
-
-	payload := map[string]interface{}{"Items": out}
-	b, err := json.Marshal(payload)
+	b, err := buildItemsUpsertPayload(items, codeToID)
 	if err != nil {
 		return err
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.xero.com/api.xro/2.0/Items", bytes.NewReader(b))
+	req, err := newJSONRequest(ctx, http.MethodPost, "https://api.xero.com/api.xro/2.0/Items", b, accessToken, tenantID)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Xero-tenant-id", tenantID)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
+	status, body, err := doJSON(httpClient, req)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		var buf bytes.Buffer
-		_, _ = buf.ReadFrom(resp.Body)
-		return fmt.Errorf("xero items post failed: status=%d body=%s", resp.StatusCode, buf.String())
+	if status >= 300 {
+		return fmt.Errorf("xero items post failed: status=%d body=%s", status, string(body))
 	}
 	return nil
 }
@@ -298,101 +404,39 @@ func GetInvoiceItemCodes(ctx context.Context, httpClient *http.Client, accessTok
 	if invoiceNumber == "" {
 		return nil, fmt.Errorf("invoice number empty")
 	}
-
-	// 1) find InvoiceID by InvoiceNumber (list endpoint)
+	// find InvoiceID by InvoiceNumber
 	where := url.QueryEscape(fmt.Sprintf(`InvoiceNumber=="%s"`, invoiceNumber))
-	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Invoices?where=%s", where)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	listURL := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Invoices?where=%s", where)
+	req, err := newJSONRequest(ctx, http.MethodGet, listURL, nil, accessToken, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Xero-tenant-id", tenantID)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
+	status, body, err := doJSON(httpClient, req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("invoices lookup failed: status=%d body=%s", resp.StatusCode, string(body))
+	if status >= 300 {
+		return nil, fmt.Errorf("invoices lookup failed: status=%d body=%s", status, string(body))
 	}
-
-	var listShape struct {
-		Invoices []struct {
-			InvoiceID string `json:"InvoiceID"`
-		} `json:"Invoices"`
-	}
-	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&listShape); err != nil {
-		return nil, err
-	}
-	if len(listShape.Invoices) == 0 {
+	invoiceID, err := parseInvoiceID(body)
+	if err != nil || invoiceID == "" {
 		return nil, nil
 	}
 
-	invoiceID := listShape.Invoices[0].InvoiceID
-	if invoiceID == "" {
-		return nil, nil
-	}
-
-	// 2) fetch the invoice detail endpoint to get full LineItems
+	// fetch invoice detail
 	detailURL := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Invoices/%s", invoiceID)
-
-	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, detailURL, nil)
+	req2, err := newJSONRequest(ctx, http.MethodGet, detailURL, nil, accessToken, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	req2.Header.Set("Authorization", "Bearer "+accessToken)
-	req2.Header.Set("Xero-tenant-id", tenantID)
-	req2.Header.Set("Accept", "application/json")
-
-	resp2, err := httpClient.Do(req2)
+	status, body, err = doJSON(httpClient, req2)
 	if err != nil {
 		return nil, err
 	}
-	defer resp2.Body.Close()
-	body2, _ := io.ReadAll(resp2.Body)
-	if resp2.StatusCode >= 300 {
-		return nil, fmt.Errorf("invoice detail fetch failed: status=%d body=%s", resp2.StatusCode, string(body2))
+	if status >= 300 {
+		return nil, fmt.Errorf("invoice detail fetch failed: status=%d body=%s", status, string(body))
 	}
-
-	var detailShape struct {
-		Invoices []struct {
-			LineItems []struct {
-				ItemCode    string  `json:"ItemCode"`
-				Description string  `json:"Description"`
-				Quantity    float64 `json:"Quantity"`
-				Item        struct {
-					Name string `json:"Name"`
-				} `json:"Item"`
-			} `json:"LineItems"`
-		} `json:"Invoices"`
-	}
-	if err := json.NewDecoder(bytes.NewReader(body2)).Decode(&detailShape); err != nil {
-		return nil, err
-	}
-	if len(detailShape.Invoices) == 0 {
-		return nil, nil
-	}
-
-	out := make([]InvoiceLine, 0, len(detailShape.Invoices[0].LineItems))
-	for _, li := range detailShape.Invoices[0].LineItems {
-		name := li.Item.Name
-		if name == "" {
-			name = li.Description
-		}
-		il := InvoiceLine{
-			ItemCode: li.ItemCode,
-			Name:     name,
-			Quantity: li.Quantity,
-		}
-		out = append(out, il)
-	}
-	return out, nil
+	return parseInvoiceLines(body)
 }
 
 // POItem is a minimal purchase order line (ItemCode + Quantity).
@@ -410,36 +454,18 @@ func GetContactIDByAccountNumber(ctx context.Context, httpClient *http.Client, a
 	}
 	where := url.QueryEscape(fmt.Sprintf(`AccountNumber=="%s"`, accountNumber))
 	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Contacts?where=%s", where)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := newJSONRequest(ctx, http.MethodGet, u, nil, accessToken, tenantID)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Xero-tenant-id", tenantID)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
+	status, body, err := doJSON(httpClient, req)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return "", fmt.Errorf("contacts lookup failed: status=%d", resp.StatusCode)
+	if status >= 300 {
+		return "", fmt.Errorf("contacts lookup failed: status=%d body=%s", status, string(body))
 	}
-
-	var out struct {
-		Contacts []struct {
-			ContactID string `json:"ContactID"`
-		} `json:"Contacts"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", err
-	}
-	if len(out.Contacts) == 0 {
-		return "", nil
-	}
-	return out.Contacts[0].ContactID, nil
+	return parseFirstContactID(body)
 }
 
 // CreatePurchaseOrder posts a minimal PurchaseOrder payload to Xero using ContactID.
@@ -448,121 +474,30 @@ func CreatePurchaseOrder(ctx context.Context, httpClient *http.Client, accessTok
 	if len(items) == 0 {
 		return "", fmt.Errorf("no items")
 	}
-	if contactID == "" {
-		return "", fmt.Errorf("contact id missing")
-	}
-	payload := map[string]interface{}{
-		"PurchaseOrders": []map[string]interface{}{
-			{
-				"Contact": map[string]string{
-					"ContactID": contactID,
-				},
-				"LineItems": items,
-				"Status":    "AUTHORISED",
-			},
-		},
-	}
-	b, err := json.Marshal(payload)
+	b, err := buildPOPayload(contactID, items)
 	if err != nil {
 		return "", err
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.xero.com/api.xro/2.0/PurchaseOrders", bytes.NewReader(b))
+	req, err := newJSONRequest(ctx, http.MethodPost, "https://api.xero.com/api.xro/2.0/PurchaseOrders", b, accessToken, tenantID)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Xero-tenant-id", tenantID)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
+	status, body, err := doJSON(httpClient, req)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		var buf bytes.Buffer
-		_, _ = buf.ReadFrom(resp.Body)
-		return "", fmt.Errorf("create purchase order failed: status=%d body=%s", resp.StatusCode, buf.String())
+	if status >= 300 {
+		return "", fmt.Errorf("create purchase order failed: status=%d body=%s", status, string(body))
 	}
 	var res struct {
 		PurchaseOrders []struct {
 			PurchaseOrderID string `json:"PurchaseOrderID"`
 		} `json:"PurchaseOrders"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err == nil && len(res.PurchaseOrders) > 0 {
+	if err := json.Unmarshal(body, &res); err == nil && len(res.PurchaseOrders) > 0 {
 		return res.PurchaseOrders[0].PurchaseOrderID, nil
 	}
 	return "", nil
-}
-
-// Supplier represents minimal supplier data from local DB to be synced as Xero Contact.
-type Supplier struct {
-	SupplierID   string `json:"supplier_id"` // new: supplier code used as ContactNumber
-	SupplierName string `json:"supplier_name"`
-	ContactEmail string `json:"contact_email"`
-	Phone        string `json:"phone"`
-}
-
-// SyncSuppliersToXero posts Contacts and sets ContactNumber = SupplierID
-func SyncSuppliersToXero(ctx context.Context, httpClient *http.Client, accessToken, tenantID string, suppliers []Supplier) error {
-	if len(suppliers) == 0 {
-		return nil
-	}
-	type phonePayload struct {
-		Type  string `json:"Type,omitempty"`
-		Phone string `json:"Phone,omitempty"`
-	}
-	type contactPayload struct {
-		Name          string         `json:"Name,omitempty"`
-		ContactNumber string         `json:"AccountNumber,omitempty"`
-		EmailAddress  string         `json:"EmailAddress,omitempty"`
-		Phones        []phonePayload `json:"Phones,omitempty"`
-	}
-
-	contacts := make([]contactPayload, 0, len(suppliers))
-	for _, s := range suppliers {
-		cp := contactPayload{
-			Name:          s.SupplierName,
-			ContactNumber: s.SupplierID, // use supplier_id as identifier
-			EmailAddress:  s.ContactEmail,
-		}
-		if s.Phone != "" {
-			cp.Phones = []phonePayload{{Type: "DEFAULT", Phone: s.Phone}}
-		}
-		contacts = append(contacts, cp)
-	}
-
-	payload := map[string]interface{}{"Contacts": contacts}
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.xero.com/api.xro/2.0/Contacts", bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Xero-tenant-id", tenantID)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		var buf bytes.Buffer
-		_, _ = buf.ReadFrom(resp.Body)
-		return fmt.Errorf("xero contacts post failed: status=%d body=%s", resp.StatusCode, buf.String())
-	}
-	_, _ = io.Copy(io.Discard, resp.Body)
-	return nil
 }
 
 // helper to find an existing item by Code. returns ItemID if found, empty string if not.
@@ -570,35 +505,16 @@ func SyncSuppliersToXero(ctx context.Context, httpClient *http.Client, accessTok
 func GetItemIDByCode(ctx context.Context, httpClient *http.Client, accessToken, tenantID, code string) (string, error) {
 	where := url.QueryEscape(fmt.Sprintf(`Code=="%s"`, code))
 	u := fmt.Sprintf("https://api.xero.com/api.xro/2.0/Items?where=%s", where)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := newJSONRequest(ctx, http.MethodGet, u, nil, accessToken, tenantID)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Xero-tenant-id", tenantID)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
+	status, body, err := doJSON(httpClient, req)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		return "", fmt.Errorf("get item by code failed: status=%d", resp.StatusCode)
+	if status >= 300 {
+		return "", fmt.Errorf("get item by code failed: status=%d body=%s", status, string(body))
 	}
-	var res struct {
-		Items []struct {
-			ItemID string `json:"ItemID"`
-			Code   string `json:"Code"`
-		} `json:"Items"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return "", err
-	}
-	if len(res.Items) == 0 {
-		return "", nil
-	}
-	return res.Items[0].ItemID, nil
+	return parseFirstItemID(body)
 }

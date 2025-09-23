@@ -3,8 +3,8 @@ SHELL := /bin/bash
 # Project-wide vars
 TAILWIND = npx @tailwindcss/cli
 CONFIG    = ./tailwind.config.js
-INPUT     = ./src/internal/web/static/tailwind/input.css
-OUTPUT    = ./src/internal/web/static/tailwind/output.css
+INPUT     = ./src/internal/frontend/static/tailwind/input.css
+OUTPUT    = ./src/internal/frontend/static/tailwind/output.css
 
 .PHONY: install install-air watch-css build-css dev
 
