@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -17,13 +16,14 @@ type Authenticator interface {
 	Authenticate(r *http.Request) (claims map[string]interface{}, ok bool)
 }
 
-// NewJWT returns an Authenticator that validates HMAC-signed JWTs using the provided secret.
-// It will also validate issuer/audience if SUPABASE_JWT_ISSUER / SUPABASE_JWT_AUDIENCE env vars are set.
-func NewJWT(secret string) Authenticator {
+// NewJWT returns an Authenticator that validates HMAC-signed JWTs.
+// Pass issuer/audience explicitly for testability. Use NewJWTFromEnv if you
+// want the old behaviour that reads from environment variables.
+func NewJWT(secret, issuer, audience string) Authenticator {
 	return &jwtAuth{
 		secret:   []byte(secret),
-		issuer:   os.Getenv("SUPABASE_JWT_ISSUER"),
-		audience: os.Getenv("SUPABASE_JWT_AUDIENCE"),
+		issuer:   issuer,
+		audience: audience,
 	}
 }
 

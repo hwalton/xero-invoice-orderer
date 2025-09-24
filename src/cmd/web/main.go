@@ -25,7 +25,11 @@ func main() {
 
 	// Construct an authenticator (replace with your pkg/auth constructor)
 	// e.g. auth.NewJWT(secret) or auth.NewSupabaseClient(supabaseURL, httpClient)
-	authProvider := auth.NewJWT(os.Getenv("SUPABASE_JWT_SECRET"))
+	authProvider := auth.NewJWT(
+		os.Getenv("SUPABASE_JWT_SECRET"),
+		os.Getenv("SUPABASE_JWT_ISSUER"),
+		os.Getenv("SUPABASE_JWT_AUDIENCE"),
+	)
 
 	// Read DB url from env and pass to handler.NewRouter
 	dbURL := getEnv("SUPABASE_URL", "")
