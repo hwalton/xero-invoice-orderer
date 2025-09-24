@@ -13,7 +13,7 @@ import (
 	"github.com/ory/dockertest/v3"
 )
 
-func setupTestPostgres(t *testing.T) (dbURL string, cleanup func()) {
+func setupTestPostgresShopping(t *testing.T) (dbURL string, cleanup func()) {
 	t.Helper()
 
 	// allow explicit opt-out
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS items_contacts (
 func TestGroupShoppingItemsByContact_BasicAggregation(t *testing.T) {
 	t.Parallel()
 
-	dbURL, cleanup := setupTestPostgres(t)
+	dbURL, cleanup := setupTestPostgresShopping(t)
 	defer cleanup()
 
 	// populate items_contacts mappings
@@ -195,7 +195,7 @@ ON CONFLICT DO NOTHING;
 func TestGroupShoppingItemsByContact_MissingMappingError(t *testing.T) {
 	t.Parallel()
 
-	dbURL, cleanup := setupTestPostgres(t)
+	dbURL, cleanup := setupTestPostgresShopping(t)
 	defer cleanup()
 
 	// populate items_contacts with only one mapping
@@ -245,14 +245,4 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
-}
-
-// allow running tests locally without docker in some environments by skipping
-// when DOCKER_DISABLED env var is set (optional convenience).
-func TestMain(m *testing.M) {
-	if os.Getenv("DOCKER_DISABLED") == "1" {
-		// skip tests that require docker; run as passing to avoid false failures
-		os.Exit(0)
-	}
-	os.Exit(m.Run())
 }

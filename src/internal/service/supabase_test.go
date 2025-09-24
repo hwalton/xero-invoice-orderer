@@ -1,0 +1,245 @@
+// language: go
+package service
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ory/dockertest/v3"
+)
+
+func setupTestPostgresSupabase(t *testing.T) (dbURL string, cleanup func()) {
+	t.Helper()
+
+	// allow explicit opt-out
+	if os.Getenv("DOCKER_DISABLED") == "1" {
+		t.Skip("docker disabled for tests")
+	}
+
+	pool, err := dockertest.NewPool("")
+	if err != nil {
+		t.Fatalf("could not create dockertest pool: %v", err)
+	}
+
+	opts := &dockertest.RunOptions{
+		Repository: "postgres",
+		Tag:        "15-alpine",
+		Env: []string{
+			"POSTGRES_USER=postgres",
+			"POSTGRES_PASSWORD=secret",
+			"POSTGRES_DB=postgres",
+		},
+	}
+	resource, err := pool.RunWithOptions(opts)
+	if err != nil {
+		t.Fatalf("could not start postgres container: %v", err)
+	}
+
+	cleanupFunc := func() {
+		_ = pool.Purge(resource)
+	}
+
+	hostPort := resource.GetPort("5432/tcp")
+	connStr := fmt.Sprintf("postgres://postgres:secret@localhost:%s/postgres?sslmode=disable", hostPort)
+
+	// Wait for postgres to be ready
+	var db *pgxpool.Pool
+	if err := pool.Retry(func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		db, err = pgxpool.New(ctx, connStr)
+		if err != nil {
+			return err
+		}
+		var one int
+		if err := db.QueryRow(ctx, "SELECT 1").Scan(&one); err != nil {
+			db.Close()
+			return err
+		}
+		return nil
+	}); err != nil {
+		_ = pool.Purge(resource)
+		t.Fatalf("could not connect to postgres in container: %v", err)
+	}
+
+	// create required tables for tests
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = db.Exec(ctx, `
+CREATE TABLE IF NOT EXISTS xero_connections (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  access_token TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  expires_at BIGINT,
+  created_at BIGINT,
+  updated_at BIGINT
+);
+
+CREATE TABLE IF NOT EXISTS shopping_list (
+  list_id SERIAL PRIMARY KEY,
+  item_id TEXT NOT NULL,
+  quantity INTEGER NOT NULL,
+  ordered BOOLEAN DEFAULT FALSE,
+  created_at BIGINT,
+  updated_at BIGINT
+);
+
+CREATE TABLE IF NOT EXISTS suppliers (
+  supplier_id TEXT PRIMARY KEY,
+  supplier_name TEXT,
+  contact_email TEXT,
+  phone TEXT
+);
+`)
+	if err != nil {
+		db.Close()
+		_ = pool.Purge(resource)
+		t.Fatalf("failed to create tables: %v", err)
+	}
+
+	db.Close()
+	return connStr, cleanupFunc
+}
+
+func TestUpsertConnection_Basic(t *testing.T) {
+	t.Parallel()
+
+	// empty db url -> error
+	if err := UpsertConnection(context.Background(), "", "owner", "tenant", "a", "b", 3600); err == nil {
+		t.Fatal("expected error when dbURL is empty")
+	}
+
+	dbURL, cleanup := setupTestPostgresSupabase(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ownerID := "owner-1"
+	tenantID := "tenant-1"
+	access := "token-abc"
+	refresh := "refresh-123"
+	expires := int64(3600)
+
+	if err := UpsertConnection(ctx, dbURL, ownerID, tenantID, access, refresh, expires); err != nil {
+		t.Fatalf("UpsertConnection failed: %v", err)
+	}
+
+	// verify row
+	id := ownerID + ":" + tenantID
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("connect db: %v", err)
+	}
+	defer pool.Close()
+
+	var gotID, gotOwner, gotTenant, gotAccess, gotRefresh string
+	var gotExpires int64
+	if err := pool.QueryRow(ctx, `SELECT id, owner_id, tenant_id, access_token, refresh_token, expires_at FROM xero_connections WHERE id = $1`, id).
+		Scan(&gotID, &gotOwner, &gotTenant, &gotAccess, &gotRefresh, &gotExpires); err != nil {
+		t.Fatalf("query connection row failed: %v", err)
+	}
+	if gotOwner != ownerID || gotTenant != tenantID || gotAccess != access || gotRefresh != refresh {
+		t.Fatalf("unexpected connection row values: gotOwner=%s gotTenant=%s gotAccess=%s gotRefresh=%s", gotOwner, gotTenant, gotAccess, gotRefresh)
+	}
+	now := time.Now().Unix()
+	if gotExpires < now || gotExpires > now+expires+5 {
+		t.Fatalf("expires_at unexpected: got %d expected around %d", gotExpires, now+expires)
+	}
+
+	// call UpsertConnection again with updated tokens and expiry
+	newAccess := "token-new"
+	newRefresh := "refresh-new"
+	newExpires := int64(7200)
+	if err := UpsertConnection(ctx, dbURL, ownerID, tenantID, newAccess, newRefresh, newExpires); err != nil {
+		t.Fatalf("UpsertConnection(update) failed: %v", err)
+	}
+	var updAccess, updRefresh string
+	var updExpires int64
+	if err := pool.QueryRow(ctx, `SELECT access_token, refresh_token, expires_at FROM xero_connections WHERE id = $1`, id).
+		Scan(&updAccess, &updRefresh, &updExpires); err != nil {
+		t.Fatalf("query updated connection failed: %v", err)
+	}
+	if updAccess != newAccess || updRefresh != newRefresh {
+		t.Fatalf("expected updated tokens, got access=%s refresh=%s", updAccess, updRefresh)
+	}
+	if updExpires < now || updExpires > now+newExpires+5 {
+		t.Fatalf("updated expires_at unexpected: got %d expected around %d", updExpires, now+newExpires)
+	}
+}
+
+func TestAddShoppingListEntry(t *testing.T) {
+	t.Parallel()
+
+	dbURL, cleanup := setupTestPostgresSupabase(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// empty db url
+	if err := AddShoppingListEntry(ctx, "", "P-1", 2, false); err == nil {
+		t.Fatal("expected error for empty db url")
+	}
+
+	// add two rows
+	if err := AddShoppingListEntry(ctx, dbURL, "P-1", 2, false); err != nil {
+		t.Fatalf("AddShoppingListEntry failed: %v", err)
+	}
+	if err := AddShoppingListEntry(ctx, dbURL, "P-2", 1, true); err != nil {
+		t.Fatalf("AddShoppingListEntry failed: %v", err)
+	}
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("connect db: %v", err)
+	}
+	defer pool.Close()
+
+	rows, err := pool.Query(ctx, `SELECT list_id, item_id, quantity, ordered, created_at FROM shopping_list ORDER BY list_id`)
+	if err != nil {
+		t.Fatalf("query shopping_list: %v", err)
+	}
+	defer rows.Close()
+
+	var got []struct {
+		ID        int
+		ItemID    string
+		Quantity  int
+		Ordered   bool
+		CreatedAt int64
+	}
+	for rows.Next() {
+		var r struct {
+			ID        int
+			ItemID    string
+			Quantity  int
+			Ordered   bool
+			CreatedAt int64
+		}
+		if err := rows.Scan(&r.ID, &r.ItemID, &r.Quantity, &r.Ordered, &r.CreatedAt); err != nil {
+			t.Fatalf("scan shopping_list row: %v", err)
+		}
+		got = append(got, r)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 shopping_list rows, got %d", len(got))
+	}
+	if got[0].ItemID != "P-1" || got[0].Quantity != 2 || got[0].Ordered {
+		t.Fatalf("unexpected first shopping row: %#v", got[0])
+	}
+	if got[1].ItemID != "P-2" || got[1].Quantity != 1 || !got[1].Ordered {
+		t.Fatalf("unexpected second shopping row: %#v", got[1])
+	}
+	for _, r := range got {
+		if r.CreatedAt <= 0 {
+			t.Fatalf("expected created_at > 0 for row %d", r.ID)
+		}
+	}
+}

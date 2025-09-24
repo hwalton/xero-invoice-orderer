@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hwalton/freeride-campervans/pkg/xero"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -61,38 +60,4 @@ VALUES ($1, $2, $3, (extract(epoch from now()))::bigint)
 		return fmt.Errorf("insert shopping_list: %w", err)
 	}
 	return nil
-}
-
-// LoadSuppliers reads suppliers table and returns as pkg/xero.Supplier slice.
-func LoadSuppliers(ctx context.Context, dbURL string) ([]xero.Supplier, error) {
-	if dbURL == "" {
-		return nil, fmt.Errorf("db url missing")
-	}
-	pool, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		return nil, fmt.Errorf("connect db: %w", err)
-	}
-	defer pool.Close()
-
-	rows, err := pool.Query(ctx, `
-SELECT supplier_id, COALESCE(supplier_name, '') AS supplier_name, COALESCE(contact_email, '') AS contact_email, COALESCE(phone, '') AS phone
-FROM suppliers
-`)
-	if err != nil {
-		return nil, fmt.Errorf("query suppliers: %w", err)
-	}
-	defer rows.Close()
-
-	var out []xero.Supplier
-	for rows.Next() {
-		var s xero.Supplier
-		if err := rows.Scan(&s.SupplierID, &s.SupplierName, &s.ContactEmail, &s.Phone); err != nil {
-			return nil, fmt.Errorf("scan supplier: %w", err)
-		}
-		out = append(out, s)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows error: %w", err)
-	}
-	return out, nil
 }
