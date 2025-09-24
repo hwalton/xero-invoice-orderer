@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 )
 
 type loginResponse struct {
@@ -21,12 +20,10 @@ type loginResponse struct {
 	} `json:"user"`
 }
 
-func GenerateSignedURL(accessToken, path string) (string, error) {
-	apiURL := fmt.Sprintf(
-		"%s/storage/v1/object/sign/flashcard-assets/%s",
-		os.Getenv("NEXT_PUBLIC_SUPABASE_URL"),
-		path,
-	)
+// GenerateSignedURL calls Supabase storage sign endpoint to produce a signed URL.
+// Provide supabaseBaseURL (e.g. https://xyz.supabase.co) and anonKey explicitly.
+func GenerateSignedURL(supabaseBaseURL, anonKey, accessToken, path string) (string, error) {
+	apiURL := fmt.Sprintf("%s/storage/v1/object/sign/flashcard-assets/%s", supabaseBaseURL, path)
 
 	expiry := 3600 // URL valid for 1 hour
 
@@ -40,7 +37,7 @@ func GenerateSignedURL(accessToken, path string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("apikey", os.Getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY"))
+	req.Header.Set("apikey", anonKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -60,7 +57,7 @@ func GenerateSignedURL(accessToken, path string) (string, error) {
 		return "", err
 	}
 
-	return os.Getenv("NEXT_PUBLIC_SUPABASE_URL") + "/storage/v1" + result.SignedURL, nil
+	return supabaseBaseURL + "/storage/v1" + result.SignedURL, nil
 }
 
 // AuthenticateWithSupabase calls Supabase auth REST to exchange email+password for tokens.
