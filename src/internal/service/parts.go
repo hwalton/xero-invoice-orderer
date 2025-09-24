@@ -38,6 +38,11 @@ func ResolveInvoiceBOM(ctx context.Context, dbURL string, roots []RootItem, maxD
 	}
 	defer pool.Close()
 
+	// default http client when nil to avoid nil-pointer panics in callers/tests
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
 	// helpers
 	getItem := func(ctx context.Context, code string) (name string, exists bool, err error) {
 		name, ok, err := xero.GetItemNameByCode(ctx, httpClient, accessToken, tenantID, code)
