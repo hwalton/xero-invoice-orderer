@@ -1,3 +1,6 @@
+//go:build integration
+// +build integration
+
 package service
 
 import (
@@ -14,9 +17,6 @@ import (
 func setupTestPostgresXero(t *testing.T) (dbURL string, cleanup func()) {
 	t.Helper()
 
-	if os.Getenv("DOCKER_DISABLED") == "1" {
-		t.Skip("docker disabled via DOCKER_DISABLED")
-	}
 	if _, err := os.Stat("/var/run/docker.sock"); os.IsNotExist(err) {
 		t.Skip("docker socket not found; skipping docker-dependent tests")
 	}

@@ -1,4 +1,6 @@
-// language: go
+//go:build integration
+// +build integration
+
 package service
 
 import (
@@ -15,11 +17,6 @@ import (
 
 func setupTestPostgresShopping(t *testing.T) (dbURL string, cleanup func()) {
 	t.Helper()
-
-	// allow explicit opt-out
-	if os.Getenv("DOCKER_DISABLED") == "1" {
-		t.Skip("docker disabled via DOCKER_DISABLED")
-	}
 
 	// quick check for docker socket to avoid noisy errors when docker isn't present
 	if _, err := os.Stat("/var/run/docker.sock"); os.IsNotExist(err) {

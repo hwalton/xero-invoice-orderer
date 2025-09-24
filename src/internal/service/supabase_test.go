@@ -1,4 +1,6 @@
-// language: go
+//go:build integration
+// +build integration
+
 package service
 
 import (
@@ -15,9 +17,9 @@ import (
 func setupTestPostgresSupabase(t *testing.T) (dbURL string, cleanup func()) {
 	t.Helper()
 
-	// allow explicit opt-out
-	if os.Getenv("DOCKER_DISABLED") == "1" {
-		t.Skip("docker disabled for tests")
+	// quick check for docker socket to avoid noisy errors when docker isn't present
+	if _, err := os.Stat("/var/run/docker.sock"); os.IsNotExist(err) {
+		t.Skip("docker socket not found; skipping docker-dependent tests")
 	}
 
 	pool, err := dockertest.NewPool("")
