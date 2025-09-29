@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/hwalton/freeride-campervans/pkg/xero"
+	"github.com/hwalton/xero-invoice-orderer/pkg/xero"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

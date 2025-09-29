@@ -23,3 +23,21 @@ air
 make build-css
 docker build -f Dockerfile -t flashcards-app .
 ```
+
+
+# Run tests:
+
+Unit tests:
+```
+go test ./...
+```
+
+Integration tests (requires Docker running):
+```
+go test -tags=integration ./...
+```
+
+Reset Go test cache:
+```
+go clean -testcache
+```

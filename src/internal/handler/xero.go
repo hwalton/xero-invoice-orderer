@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	mid "github.com/hwalton/freeride-campervans/internal/middleware"
-	"github.com/hwalton/freeride-campervans/internal/service"
-	"github.com/hwalton/freeride-campervans/internal/utils"
-	"github.com/hwalton/freeride-campervans/pkg/xero"
+	mid "github.com/hwalton/xero-invoice-orderer/internal/middleware"
+	"github.com/hwalton/xero-invoice-orderer/internal/service"
+	"github.com/hwalton/xero-invoice-orderer/internal/utils"
+	"github.com/hwalton/xero-invoice-orderer/pkg/xero"
 )
 
 // generateState returns a secure random hex string of length 2*n (n bytes).

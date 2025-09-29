@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hwalton/freeride-campervans/internal/frontend"
-	mid "github.com/hwalton/freeride-campervans/internal/middleware"
-	"github.com/hwalton/freeride-campervans/internal/service"
-	"github.com/hwalton/freeride-campervans/internal/utils"
-	"github.com/hwalton/freeride-campervans/pkg/supabasetoolbox"
+	"github.com/hwalton/xero-invoice-orderer/internal/frontend"
+	mid "github.com/hwalton/xero-invoice-orderer/internal/middleware"
+	"github.com/hwalton/xero-invoice-orderer/internal/service"
+	"github.com/hwalton/xero-invoice-orderer/internal/utils"
+	"github.com/hwalton/xero-invoice-orderer/pkg/supabasetoolbox"
 )
 
 // supabaseConnect handles POST from the login form, authenticates with Supabase,

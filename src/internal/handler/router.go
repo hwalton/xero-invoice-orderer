@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/go-chi/chi/v5"
-	mid "github.com/hwalton/freeride-campervans/internal/middleware"
-	authpkg "github.com/hwalton/freeride-campervans/pkg/auth"
+	mid "github.com/hwalton/xero-invoice-orderer/internal/middleware"
+	authpkg "github.com/hwalton/xero-invoice-orderer/pkg/auth"
 )
 
 // Handler groups dependencies for route handlers.

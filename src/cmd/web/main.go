@@ -9,9 +9,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/hwalton/freeride-campervans/internal/frontend"
-	"github.com/hwalton/freeride-campervans/internal/handler"
-	"github.com/hwalton/freeride-campervans/pkg/auth"
+	"github.com/hwalton/xero-invoice-orderer/internal/frontend"
+	"github.com/hwalton/xero-invoice-orderer/internal/handler"
+	"github.com/hwalton/xero-invoice-orderer/pkg/auth"
 	"github.com/joho/godotenv"
 )
 

@@ -1,4 +1,4 @@
-module github.com/hwalton/freeride-campervans/control-panel
+module github.com/hwalton/xero-invoice-orderer/control-panel
 
 go 1.24.3
 
