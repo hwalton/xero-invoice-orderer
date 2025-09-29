@@ -1,4 +1,4 @@
-module github.com/hwalton/freeride-campervans
+module github.com/hwalton/xero-invoice-orderer
 
 go 1.24.3
 

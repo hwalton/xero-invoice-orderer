@@ -6,7 +6,7 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/hwalton/freeride-campervans/control-panel/internal/commands"
+	"github.com/hwalton/xero-invoice-orderer/control-panel/internal/commands"
 )
 
 func usage() {

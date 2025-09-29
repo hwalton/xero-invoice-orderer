@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	authpkg "github.com/hwalton/freeride-campervans/pkg/auth"
+	authpkg "github.com/hwalton/xero-invoice-orderer/pkg/auth"
 )
 
 type contextKey string

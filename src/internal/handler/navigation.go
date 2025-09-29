@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hwalton/freeride-campervans/internal/frontend"
-	mid "github.com/hwalton/freeride-campervans/internal/middleware"
-	"github.com/hwalton/freeride-campervans/internal/service"
-	"github.com/hwalton/freeride-campervans/internal/utils"
+	"github.com/hwalton/xero-invoice-orderer/internal/frontend"
+	mid "github.com/hwalton/xero-invoice-orderer/internal/middleware"
+	"github.com/hwalton/xero-invoice-orderer/internal/service"
+	"github.com/hwalton/xero-invoice-orderer/internal/utils"
 )
 
 // login serves the login page via templates
@@ -19,7 +19,7 @@ func (h *Handler) loginHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// render using parsed templates; pass any dynamic data here
 	data := map[string]interface{}{
-		"Title": "Login — Freeride",
+		"Title": "Login — Business",
 	}
 	if h.templates != nil {
 		_ = h.templates.ExecuteTemplate(w, "login.html", data)
