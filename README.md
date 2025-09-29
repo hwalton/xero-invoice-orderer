@@ -2,6 +2,8 @@
 
 This is a web application that connects to Xero accounts software via the Xero API. It retrieves assemblies defined in customer invoices, and creates a single purchase order for each supplier for the parts required to fulfill those assemblies.
 
+It uses a `Supabase` Database built on `PostgreSQL` to store user and application data, `Go` for the backend API, a lightweight frontend built using `HTMX`, `TailwindCSS` and `DaisyUI`, with `Docker` for containerization.
+
 # Setup:
 
 ## Download Make. (Makefile)
