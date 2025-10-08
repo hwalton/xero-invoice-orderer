@@ -4,6 +4,8 @@ This is a web application that connects to Xero accounts software via the Xero A
 
 It uses a `Supabase` Database built on `PostgreSQL` to store user and application data, `Go` for the backend API, a lightweight frontend built using `HTMX`, `TailwindCSS` and `DaisyUI`, with `Docker` for containerization.
 
+![apppng](./app.png)
+
 # Setup:
 
 ## Download Make. (Makefile)
